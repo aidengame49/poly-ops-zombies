@@ -5,6 +5,7 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
+    base: 'poly-ops-zombies/', 
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
