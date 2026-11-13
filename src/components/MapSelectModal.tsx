@@ -100,9 +100,9 @@ export const MapSelectModal: React.FC<MapSelectModalProps> = ({ onSelectMap, onO
               <div className="inline-flex items-center gap-1.5 bg-red-950 border border-red-800 px-2.5 py-0.5 rounded-full text-[10px] font-bold text-red-400 uppercase tracking-wider mb-2">
                 OFFICIAL SURVIVAL MAP
               </div>
-              <h3 className="text-2xl font-extrabold text-white tracking-wider mb-1">DER ABANDONED</h3>
+              <h3 className="text-2xl font-extrabold text-white tracking-wider mb-1">SECTOR ZERO</h3>
               <p className="text-slate-300 text-xs leading-relaxed mb-4">
-                Cold War weapons testing facility featuring 4 Window Spawn Barriers, Perk-a-Colas, Wall Buys, and Pack-a-Punch.
+                Cold War weapons testing facility featuring 4 Window Spawn Barriers, Power Brews, Wall Buys, and Hyper-Forge.
               </p>
 
               <div className="flex items-center gap-2 text-xs font-semibold text-slate-400">
@@ -110,10 +110,10 @@ export const MapSelectModal: React.FC<MapSelectModalProps> = ({ onSelectMap, onO
                   4 Windows
                 </span>
                 <span className="bg-slate-900 border border-slate-800 px-2 py-1 rounded text-amber-300">
-                  3 Perk Machines
+                  3 Power Brews
                 </span>
                 <span className="bg-slate-900 border border-slate-800 px-2 py-1 rounded text-emerald-300">
-                  Pack-a-Punch
+                  Hyper-Forge
                 </span>
               </div>
             </div>

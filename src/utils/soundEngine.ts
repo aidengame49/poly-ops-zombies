@@ -1,5 +1,5 @@
 /**
- * Procedural Audio Synthesizer for Black Ops Zombies 3D
+ * Procedural Audio Synthesizer for Poly-Ops Zombies
  * Uses standard Web Audio API - Zero external MP3/WAV dependencies!
  */
 
@@ -78,6 +78,14 @@ class SoundEngine {
       duration = 0.25;
       freq = 600;
       volume = 0.5;
+    } else if (type === 'sniper') {
+      duration = 0.32;
+      freq = 1600;
+      volume = 0.55;
+    } else if (type === 'lmg') {
+      duration = 0.14;
+      freq = 850;
+      volume = 0.38;
     } else if (type === 'smg') {
       duration = 0.08;
       freq = 1400;
@@ -285,7 +293,7 @@ class SoundEngine {
     });
   }
 
-  // Pack-a-Punch upgrade sound effect
+  // Hyper-Forge upgrade sound effect
   public playPackAPunch() {
     if (this.isMuted) return;
     this.initCtx();
@@ -309,7 +317,7 @@ class SoundEngine {
     osc.stop(now + 0.8);
   }
 
-  // Round Change / Round Start BO3 Horror Bell Stinger
+  // Round Change / Round Start Horror Bell Stinger
   public playRoundChange(isStart: boolean = true) {
     if (this.isMuted) return;
     this.initCtx();
@@ -334,6 +342,75 @@ class SoundEngine {
 
     osc.start(now);
     osc.stop(now + 1.2);
+  }
+
+  public playExplosion() {
+    if (this.isMuted) return;
+    this.initCtx();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    const noiseBuffer = this.createNoiseBuffer(0.75);
+    const noiseSource = this.ctx.createBufferSource();
+    noiseSource.buffer = noiseBuffer;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(700, now);
+    filter.frequency.exponentialRampToValueAtTime(60, now + 0.7);
+
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.65, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.75);
+
+    noiseSource.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.ctx.destination);
+
+    noiseSource.start(now);
+    noiseSource.stop(now + 0.75);
+  }
+
+  public playTeleport() {
+    if (this.isMuted) return;
+    this.initCtx();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(280, now);
+    osc.frequency.exponentialRampToValueAtTime(1400, now + 0.35);
+
+    gain.gain.setValueAtTime(0.35, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.38);
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.38);
+  }
+
+  public playFlashlightClick(isOn: boolean) {
+    if (this.isMuted) return;
+    this.initCtx();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(isOn ? 1400 : 950, now);
+    osc.frequency.exponentialRampToValueAtTime(isOn ? 2100 : 520, now + 0.035);
+
+    gain.gain.setValueAtTime(0.22 * this.masterVolume, now);
+    gain.gain.exponentialRampToValueAtTime(0.005, now + 0.04);
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.04);
   }
 
   private createNoiseBuffer(duration: number): AudioBuffer {

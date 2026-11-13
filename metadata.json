@@ -1,6 +1,6 @@
 {
-  "name": "Call of Duty: Zombies 3D",
-  "description": "Playable 3D wave-based zombie survival FPS game inspired by Black Ops 3 Zombies with Perks, Pack-a-Punch, Wall Buys, and Window Repairs.",
+  "name": "Poly-Ops Zombies",
+  "description": "Playable 3D wave-based zombie survival FPS game featuring Power Brews, Hyper-Forge weapon upgrades, Armory Chest, Wall Buys, Tactical Flashlight, and Window Repairs.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

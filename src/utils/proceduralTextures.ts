@@ -153,7 +153,7 @@ export function createPerkMachineTexture(type: 'juggernog' | 'speedCola' | 'doub
   const ctx = canvas.getContext('2d')!;
 
   const mainColor = type === 'juggernog' ? '#cc1111' : type === 'speedCola' ? '#11cc44' : '#eeaa11';
-  const logoText = type === 'juggernog' ? 'JUGGERNOG' : type === 'speedCola' ? 'SPEED COLA' : 'DOUBLE TAP';
+  const logoText = type === 'juggernog' ? 'TITAN TONIC' : type === 'speedCola' ? 'BLITZ BREW' : 'FURY FIZZ';
 
   ctx.fillStyle = mainColor;
   ctx.fillRect(0, 0, 256, 256);
@@ -241,7 +241,7 @@ export function createPackAPunchTexture(): THREE.CanvasTexture {
     ctx.fill();
   });
 
-  // Top header plaque "PACK-A-PUNCH"
+  // Top header plaque "HYPER-FORGE"
   ctx.fillStyle = '#0d131c';
   ctx.fillRect(60, 50, 392, 60);
   ctx.strokeStyle = '#b8860b';
@@ -251,7 +251,7 @@ export function createPackAPunchTexture(): THREE.CanvasTexture {
   ctx.fillStyle = '#00f0ff';
   ctx.font = 'bold 32px "Rajdhani", sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('PACK-A-PUNCH', 256, 92);
+  ctx.fillText('HYPER-FORGE', 256, 92);
 
   // Center mechanical upgrading slot frame
   ctx.fillStyle = '#090d14';

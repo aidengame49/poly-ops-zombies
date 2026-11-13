@@ -9,7 +9,7 @@ export function generateSingleFileHTML(): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Black Ops Zombies 3D - Standalone Single File Edition</title>
+  <title>Poly-Ops Zombies - Standalone Single File Edition</title>
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700;800&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
@@ -126,7 +126,7 @@ export function generateSingleFileHTML(): string {
   <div class="screen-modal" id="main-menu">
     <div style="max-width: 960px; width: 100%;">
       <div style="margin-bottom: 32px;">
-        <h1 style="font-size: 58px; font-weight: 900; color: #dc2626; text-shadow: 0 0 30px rgba(220,38,38,0.8); letter-spacing: 2px; line-height: 1;">BLACK OPS ZOMBIES 3D</h1>
+        <h1 style="font-size: 58px; font-weight: 900; color: #dc2626; text-shadow: 0 0 30px rgba(220,38,38,0.8); letter-spacing: 2px; line-height: 1;">POLY-OPS ZOMBIES</h1>
         <p style="font-size: 20px; color: #94a3b8; font-weight: 600; margin-top: 6px;">STANDALONE SINGLE-FILE EDITION</p>
       </div>
 
@@ -140,9 +140,9 @@ export function generateSingleFileHTML(): string {
         </div>
 
         <div style="flex: 1; background: rgba(15,23,42,0.8); border: 1px solid #1e293b; border-radius: 16px; padding: 24px;">
-          <h3 style="font-size: 22px; color: #f87171; margin-bottom: 12px; font-weight: 800;">DER ABANDONED</h3>
+          <h3 style="font-size: 22px; color: #f87171; margin-bottom: 12px; font-weight: 800;">SECTOR ZERO</h3>
           <p style="font-size: 15px; color: #cbd5e1; line-height: 1.6; margin-bottom: 16px;">
-            An isolated military testing facility overrun by relentless undead shamblers. Secure window barriers, purchase Perk-a-Colas, unlock Pack-a-Punch energy weaponry, and survive as many rounds as possible!
+            An isolated military testing facility overrun by relentless undead shamblers. Secure window barriers, purchase Power Brews, unlock Hyper-Forge energy weaponry, and survive as many rounds as possible!
           </p>
           <div style="background: #020617; padding: 12px 16px; border-radius: 10px; border: 1px solid #1e293b; font-size: 13px; color: #38bdf8;">
             <b>CONTROLS:</b> WASD to Move | MOUSE to Look | LEFT CLICK to Shoot | RIGHT CLICK to ADS | R Reload | E Interact | ESC Pause
@@ -197,9 +197,9 @@ export function generateSingleFileHTML(): string {
       <h2 style="font-size: 32px; color: #fff; font-weight: 800; margin-bottom: 16px;">HOW TO PLAY</h2>
       <div style="font-size: 15px; color: #cbd5e1; line-height: 1.8; margin-bottom: 24px;">
         <p>• <b>Defend Window Barriers:</b> Zombies break wood planks to enter. Hold <b>'E'</b> near barriers to rebuild planks and gain points.</p>
-        <p>• <b>Perk-a-Cola Machines:</b> Buy Juggernog (250 HP), Speed Cola (50% Reload Speed), or Double Tap (+50% Fire Rate & Damage).</p>
-        <p>• <b>Pack-a-Punch:</b> Upgrade your active weapon for 5,000 points to double its damage and ammo capacity with blue plasma tracer rounds!</p>
-        <p>• <b>Mystery Box & Wall Buys:</b> Spin the chest for 950 pts for high-tier energy weapons or buy wall weapons around the facility.</p>
+        <p>• <b>Power Brew Machines:</b> Buy Titan Tonic (250 HP), Blitz Brew (50% Reload Speed), or Fury Fizz (+50% Fire Rate & Damage).</p>
+        <p>• <b>Hyper-Forge:</b> Upgrade your active weapon for 5,000 points to double its damage and ammo capacity with blue plasma tracer rounds!</p>
+        <p>• <b>Armory Chest & Wall Buys:</b> Spin the chest for 950 pts for high-tier energy weapons or buy wall weapons around the facility.</p>
       </div>
       <button class="btn-main" onclick="toggleHowToPlayModal(false)">GOT IT</button>
     </div>
@@ -280,7 +280,7 @@ export function generateSingleFileHTML(): string {
       ctx.fillStyle = bg; ctx.fillRect(0,0,256,512);
       ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(128, 120, 50, 0, Math.PI*2); ctx.fill();
       ctx.fillStyle = '#000000'; ctx.font = 'bold 18px sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText(type==='juggernog'?'JUGG':type==='speedCola'?'SPEED':'D-TAP', 128, 126);
+      ctx.fillText(type==='juggernog'?'TITAN':type==='speedCola'?'BLITZ':'FURY', 128, 126);
       ctx.fillStyle = '#0a0d14'; ctx.fillRect(32, 280, 192, 180);
       const t = new THREE.CanvasTexture(c); return t;
     }
@@ -291,7 +291,7 @@ export function generateSingleFileHTML(): string {
       ctx.fillStyle = '#141a24'; ctx.fillRect(0,0,512,512);
       ctx.strokeStyle = '#00f0ff'; ctx.lineWidth = 4; ctx.strokeRect(20,20,472,472);
       ctx.fillStyle = '#00f0ff'; ctx.font = 'bold 36px sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText('PACK-A-PUNCH', 256, 120);
+      ctx.fillText('HYPER-FORGE', 256, 120);
       ctx.fillStyle = '#05080f'; ctx.fillRect(64, 200, 384, 200);
       const t = new THREE.CanvasTexture(c); return t;
     }
@@ -450,11 +450,11 @@ export function generateSingleFileHTML(): string {
     // Full Standalone Game Engine
     // -------------------------------------------------------------
     const BASE_WEAPONS = {
-      pistol: { id: 'pistol', name: 'M1911', papName: 'Mustang & Sally', type: 'pistol', damage: 40, fireRate: 0.22, clipSize: 8, maxReserve: 80, reloadTime: 1.4, price: 0 },
+      pistol: { id: 'pistol', name: 'M1911', papName: 'Twin Vipers', type: 'pistol', damage: 40, fireRate: 0.22, clipSize: 8, maxReserve: 80, reloadTime: 1.4, price: 0 },
       smg: { id: 'smg', name: 'MP40', papName: 'Afterburner', type: 'smg', damage: 45, fireRate: 0.09, clipSize: 32, maxReserve: 192, reloadTime: 1.8, price: 1000 },
-      ar: { id: 'ar', name: 'KN-44', papName: 'Annihilator-44', type: 'ar', damage: 75, fireRate: 0.13, clipSize: 30, maxReserve: 180, reloadTime: 2.1, price: 1500 },
-      shotgun: { id: 'shotgun', name: 'KRM-262', papName: 'Dragon\'s Breath', type: 'shotgun', damage: 32, pellets: 8, spread: 0.08, fireRate: 0.75, clipSize: 8, maxReserve: 48, reloadTime: 2.6, price: 1200 },
-      raygun: { id: 'raygun', name: 'Ray Gun', papName: 'Porter\'s X2 Ray Gun', type: 'raygun', damage: 240, fireRate: 0.28, clipSize: 20, maxReserve: 120, reloadTime: 1.9, price: 950 }
+      ar: { id: 'ar', name: 'VX-44', papName: 'Annihilator-44', type: 'ar', damage: 75, fireRate: 0.13, clipSize: 30, maxReserve: 180, reloadTime: 2.1, price: 1500 },
+      shotgun: { id: 'shotgun', name: 'SG-26', papName: 'Dragon\'s Breath', type: 'shotgun', damage: 32, pellets: 8, spread: 0.08, fireRate: 0.75, clipSize: 8, maxReserve: 48, reloadTime: 2.6, price: 1200 },
+      raygun: { id: 'raygun', name: 'Plasma Blaster', papName: 'X2 Hyper-Plasma', type: 'raygun', damage: 240, fireRate: 0.28, clipSize: 20, maxReserve: 120, reloadTime: 1.9, price: 950 }
     };
 
     let scene, camera, renderer, clock;
@@ -666,8 +666,8 @@ export function generateSingleFileHTML(): string {
       // Wall Buys
       const wallBuys = [
         { name: 'MP40', price: 1000, pos: new THREE.Vector3(-11.6, 2.0, -5.0), ry: Math.PI/2, type: 'smg' },
-        { name: 'KN-44', price: 1500, pos: new THREE.Vector3(11.6, 2.0, 5.0), ry: -Math.PI/2, type: 'ar' },
-        { name: 'KRM-262', price: 1200, pos: new THREE.Vector3(-11.6, 2.0, 5.0), ry: Math.PI/2, type: 'shotgun' }
+        { name: 'VX-44', price: 1500, pos: new THREE.Vector3(11.6, 2.0, 5.0), ry: -Math.PI/2, type: 'ar' },
+        { name: 'SG-26', price: 1200, pos: new THREE.Vector3(-11.6, 2.0, 5.0), ry: Math.PI/2, type: 'shotgun' }
       ];
       wallBuys.forEach(wb => {
         const grp = new THREE.Group(); grp.position.copy(wb.pos); grp.rotation.y = wb.ry;
@@ -869,22 +869,22 @@ export function generateSingleFileHTML(): string {
         }
       });
 
-      // Perks
+      // Power Brews
       if(p2.distanceTo(new THREE.Vector2(6, 11.1)) < 2.5 && !perks.juggernog) {
-        currentPromptText = "PRESS 'E' FOR JUGGERNOG [2,500 PTS]";
+        currentPromptText = "PRESS 'E' FOR TITAN TONIC [2,500 PTS]";
         currentPromptAction = () => { if(score >= 2500) { score -= 2500; perks.juggernog = true; maxHp = 250; playerHp = 250; playPerkSound(); updateHUD(); } };
       } else if(p2.distanceTo(new THREE.Vector2(6, -11.1)) < 2.5 && !perks.speedCola) {
-        currentPromptText = "PRESS 'E' FOR SPEED COLA [3,000 PTS]";
+        currentPromptText = "PRESS 'E' FOR BLITZ BREW [3,000 PTS]";
         currentPromptAction = () => { if(score >= 3000) { score -= 3000; perks.speedCola = true; playPerkSound(); updateHUD(); } };
       } else if(p2.distanceTo(new THREE.Vector2(-6, -11.1)) < 2.5 && !perks.doubleTap) {
-        currentPromptText = "PRESS 'E' FOR DOUBLE TAP [2,000 PTS]";
+        currentPromptText = "PRESS 'E' FOR FURY FIZZ [2,000 PTS]";
         currentPromptAction = () => { if(score >= 2000) { score -= 2000; perks.doubleTap = true; playPerkSound(); updateHUD(); } };
       }
 
-      // Pack-a-Punch
+      // Hyper-Forge
       const curWep = playerWeapons[currentWepIndex];
       if(curWep && p2.distanceTo(new THREE.Vector2(-6, 11.1)) < 2.5 && !curWep.isPap) {
-        currentPromptText = "PRESS 'E' TO PACK-A-PUNCH " + curWep.stats.name + " [5,000 PTS]";
+        currentPromptText = "PRESS 'E' TO HYPER-FORGE " + curWep.stats.name + " [5,000 PTS]";
         currentPromptAction = () => {
           if(score >= 5000) {
             score -= 5000; curWep.isPap = true; curWep.stats.name = curWep.stats.papName;
@@ -895,9 +895,9 @@ export function generateSingleFileHTML(): string {
         };
       }
 
-      // Mystery Box
+      // Armory Chest
       if(p2.distanceTo(new THREE.Vector2(11.1, -5)) < 2.5 && !isBoxSpinning) {
-        currentPromptText = "PRESS 'E' TO SPIN MYSTERY BOX [950 PTS]";
+        currentPromptText = "PRESS 'E' TO OPEN ARMORY CHEST [950 PTS]";
         currentPromptAction = () => {
           if(score >= 950) {
             score -= 950; isBoxSpinning = true; playPaPSound(); updateHUD();
@@ -916,10 +916,10 @@ export function generateSingleFileHTML(): string {
         currentPromptText = "PRESS 'E' TO BUY MP40 [1,000 PTS]";
         currentPromptAction = () => buyWallWeapon('smg');
       } else if(p2.distanceTo(new THREE.Vector2(11.4, 5)) < 2.5) {
-        currentPromptText = "PRESS 'E' TO BUY KN-44 [1,500 PTS]";
+        currentPromptText = "PRESS 'E' TO BUY VX-44 [1,500 PTS]";
         currentPromptAction = () => buyWallWeapon('ar');
       } else if(p2.distanceTo(new THREE.Vector2(-11.4, 5)) < 2.5) {
-        currentPromptText = "PRESS 'E' TO BUY KRM-262 SHOTGUN [1,200 PTS]";
+        currentPromptText = "PRESS 'E' TO BUY SG-26 SHOTGUN [1,200 PTS]";
         currentPromptAction = () => buyWallWeapon('shotgun');
       }
 

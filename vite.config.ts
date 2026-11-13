@@ -5,7 +5,7 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
-    base: 'poly-ops-zombies/', 
+    base: process.env.GITHUB_ACTIONS ? '/poly-ops-zombies/' : '/',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {

@@ -11,6 +11,7 @@ import {
   GameStats,
   CustomMapConfig,
   MapObject,
+  MapObjectType,
 } from '../types/game';
 import { soundEngine } from '../utils/soundEngine';
 import {
@@ -101,7 +102,7 @@ export function createWeapon3DModel(type: string, isPap: boolean = false): THREE
     dot.position.set(0, 0.048, -0.52);
     group.add(dot);
   } else if (type === 'ar') {
-    // KN-44 Assault Rifle
+    // VX-44 Assault Rifle
     const body = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.12, 0.48), steelMat);
     body.position.set(0, 0, -0.1);
     group.add(body);
@@ -163,6 +164,71 @@ export function createWeapon3DModel(type: string, isPap: boolean = false): THREE
     const dot = new THREE.Mesh(new THREE.SphereGeometry(0.005, 6, 6), tritiumMat);
     dot.position.set(0, 0.068, -0.55);
     group.add(dot);
+  } else if (type === 'sniper') {
+    // DSR-50 Heavy Sniper Rifle
+    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.12, 0.44), steelMat);
+    receiver.position.set(0, 0, 0.02);
+    group.add(receiver);
+
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.028, 0.68, 10), darkMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.02, -0.52);
+    group.add(barrel);
+
+    const muzzleBrake = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.045, 0.09), steelMat);
+    muzzleBrake.position.set(0, 0.02, -0.88);
+    group.add(muzzleBrake);
+
+    const scopeTube = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.34, 12), darkMat);
+    scopeTube.rotation.x = Math.PI / 2;
+    scopeTube.position.set(0, 0.1, -0.04);
+    group.add(scopeTube);
+
+    const scopeLens = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.036, 0.06, 12), tritiumMat);
+    scopeLens.rotation.x = Math.PI / 2;
+    scopeLens.position.set(0, 0.1, -0.22);
+    group.add(scopeLens);
+
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.14, 0.3), darkMat);
+    stock.position.set(0, -0.02, 0.34);
+    group.add(stock);
+
+    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.16, 0.08), steelMat);
+    mag.position.set(0, -0.13, -0.05);
+    group.add(mag);
+  } else if (type === 'lmg') {
+    // MG42 Heavy Light Machine Gun
+    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.13, 0.5), steelMat);
+    receiver.position.set(0, 0, -0.05);
+    group.add(receiver);
+
+    const shroud = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.56), darkMat);
+    shroud.position.set(0, 0.01, -0.52);
+    group.add(shroud);
+
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.16, 10), steelMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.01, -0.85);
+    group.add(barrel);
+
+    // Drum / Belt Box Magazine
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.14, 14), brassMat);
+    drum.rotation.z = Math.PI / 2;
+    drum.position.set(0, -0.13, -0.14);
+    group.add(drum);
+
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.14, 0.28), woodMat);
+    stock.position.set(0, -0.02, 0.3);
+    group.add(stock);
+
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.16, 0.07), darkMat);
+    grip.position.set(0, -0.13, 0.08);
+    grip.rotation.x = 0.25;
+    group.add(grip);
+
+    const sight = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.04, 0.02), tritiumMat);
+    sight.position.set(0, 0.08, -0.74);
+    group.add(sight);
   } else if (type === 'raygun') {
     // Ray Gun
     const body = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.05, 0.4, 12), steelMat);
@@ -187,6 +253,196 @@ export function createWeapon3DModel(type: string, isPap: boolean = false): THREE
   }
 
   return group;
+}
+
+export const WALL_BUY_CONFIG: Record<string, { name: string; price: number; wepType: string }> = {
+  wall_buy_smg: { name: 'MP40', price: 1000, wepType: 'smg' },
+  wall_buy_ar: { name: 'VX-44', price: 1500, wepType: 'ar' },
+  wall_buy_shotgun: { name: 'SG-26', price: 1200, wepType: 'shotgun' },
+  wall_buy_sniper: { name: 'SR-50', price: 2000, wepType: 'sniper' },
+  wall_buy_lmg: { name: 'MG42 LMG', price: 2500, wepType: 'lmg' },
+  wall_buy_raygun: { name: 'Plasma Blaster', price: 4000, wepType: 'raygun' },
+};
+
+export function createCustomPropMesh(type: MapObjectType, color?: string): THREE.Group | null {
+  if (type in WALL_BUY_CONFIG) {
+    const cfg = WALL_BUY_CONFIG[type];
+    const grp = new THREE.Group();
+    const tex = createWallBuyChalkTexture(cfg.name, cfg.price);
+    const plaque = new THREE.Mesh(
+      new THREE.BoxGeometry(2.2, 1.1, 0.08),
+      new THREE.MeshStandardMaterial({ map: tex, roughness: 0.5 })
+    );
+    grp.add(plaque);
+
+    const gunModel = createWeapon3DModel(cfg.wepType, false);
+    const modelScale = cfg.wepType === 'sniper' || cfg.wepType === 'lmg' ? 0.92 : 1.1;
+    gunModel.scale.set(modelScale, modelScale, modelScale);
+    gunModel.position.set(0, 0.18, 0.1);
+    gunModel.rotation.y = Math.PI / 2;
+    grp.add(gunModel);
+    return grp;
+  }
+
+  if (type === 'ammo_crate') {
+    const grp = new THREE.Group();
+    const oliveMat = new THREE.MeshStandardMaterial({ color: '#3b4d2b', roughness: 0.65, metalness: 0.35 });
+    const brassMat = new THREE.MeshStandardMaterial({ color: '#eab308', roughness: 0.3, metalness: 0.85 });
+    const darkMat = new THREE.MeshStandardMaterial({ color: '#181c24', roughness: 0.6, metalness: 0.6 });
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.72, 0.8), oliveMat);
+    body.position.y = 0.36;
+    body.castShadow = true;
+    grp.add(body);
+
+    const lid = new THREE.Mesh(new THREE.BoxGeometry(1.38, 0.14, 0.88), darkMat);
+    lid.position.y = 0.76;
+    grp.add(lid);
+
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(1.32, 0.12, 0.82), brassMat);
+    stripe.position.y = 0.48;
+    grp.add(stripe);
+
+    const latchL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.22, 0.06), brassMat);
+    latchL.position.set(-0.35, 0.65, 0.43);
+    const latchR = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.22, 0.06), brassMat);
+    latchR.position.set(0.35, 0.65, 0.43);
+    grp.add(latchL, latchR);
+
+    const glow = new THREE.PointLight('#facc15', 1.2, 5);
+    glow.position.set(0, 1.1, 0);
+    grp.add(glow);
+    return grp;
+  }
+
+  if (type === 'explosive_barrel') {
+    const grp = new THREE.Group();
+    const redMat = new THREE.MeshStandardMaterial({ color: color || '#dc2626', roughness: 0.45, metalness: 0.5 });
+    const stripeMat = new THREE.MeshStandardMaterial({ color: '#facc15', roughness: 0.4, metalness: 0.3 });
+    const darkMat = new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.5, metalness: 0.8 });
+
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 1.25, 16), redMat);
+    drum.position.y = 0.625;
+    drum.castShadow = true;
+    grp.add(drum);
+
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.46, 0.2, 16), stripeMat);
+    band.position.y = 0.625;
+    grp.add(band);
+
+    const ribTop = new THREE.Mesh(new THREE.TorusGeometry(0.455, 0.025, 8, 18), darkMat);
+    ribTop.rotation.x = Math.PI / 2;
+    ribTop.position.y = 1.22;
+    const ribMid = new THREE.Mesh(new THREE.TorusGeometry(0.455, 0.02, 8, 18), darkMat);
+    ribMid.rotation.x = Math.PI / 2;
+    ribMid.position.y = 0.85;
+    const ribBot = new THREE.Mesh(new THREE.TorusGeometry(0.455, 0.025, 8, 18), darkMat);
+    ribBot.rotation.x = Math.PI / 2;
+    ribBot.position.y = 0.04;
+    grp.add(ribTop, ribMid, ribBot);
+    return grp;
+  }
+
+  if (type === 'teleporter') {
+    const grp = new THREE.Group();
+    const steelMat = new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.35, metalness: 0.85 });
+    const glowMat = new THREE.MeshBasicMaterial({ color: '#00f0ff' });
+    const coreMat = new THREE.MeshBasicMaterial({ color: '#38bdf8', transparent: true, opacity: 0.7 });
+
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(1.3, 1.5, 0.22, 8), steelMat);
+    base.position.y = 0.11;
+    grp.add(base);
+
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.1, 0.07, 10, 24), glowMat);
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = 0.24;
+    grp.add(ring);
+
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.98, 0.98, 0.04, 24), coreMat);
+    disc.position.y = 0.22;
+    grp.add(disc);
+
+    // 3 corner pylons
+    for (let i = 0; i < 3; i++) {
+      const ang = (i * Math.PI * 2) / 3;
+      const pylon = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.75, 0.18), steelMat);
+      pylon.position.set(Math.cos(ang) * 1.25, 0.45, Math.sin(ang) * 1.25);
+      pylon.rotation.y = -ang;
+      grp.add(pylon);
+
+      const tip = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), glowMat);
+      tip.position.set(Math.cos(ang) * 1.25, 0.88, Math.sin(ang) * 1.25);
+      grp.add(tip);
+    }
+
+    const pLight = new THREE.PointLight('#00f0ff', 2.2, 8);
+    pLight.position.set(0, 1.2, 0);
+    grp.add(pLight);
+    return grp;
+  }
+
+  if (type === 'crate_cover') {
+    const grp = new THREE.Group();
+    const woodMat = new THREE.MeshStandardMaterial({ map: createWoodPlankTexture(), color: color || '#8b5a2b', roughness: 0.75 });
+    const metalMat = new THREE.MeshStandardMaterial({ color: '#1f2937', roughness: 0.5, metalness: 0.7 });
+
+    const box = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.2, 1.4), woodMat);
+    box.position.y = 0.6;
+    box.castShadow = true;
+    box.receiveShadow = true;
+    grp.add(box);
+
+    // Outer frame trim
+    const topRim = new THREE.Mesh(new THREE.BoxGeometry(1.46, 0.1, 1.46), metalMat);
+    topRim.position.y = 1.15;
+    const botRim = new THREE.Mesh(new THREE.BoxGeometry(1.46, 0.1, 1.46), metalMat);
+    botRim.position.y = 0.05;
+    grp.add(topRim, botRim);
+    return grp;
+  }
+
+  if (type === 'sandbag_wall') {
+    const grp = new THREE.Group();
+    const bagMat = new THREE.MeshStandardMaterial({ color: color || '#a89060', roughness: 0.95 });
+    const darkBagMat = new THREE.MeshStandardMaterial({ color: '#8a744a', roughness: 0.95 });
+
+    // 3 stacked rows of sandbags
+    for (let row = 0; row < 3; row++) {
+      const count = 4;
+      for (let col = 0; col < count; col++) {
+        const bag = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.3, 0.68), (row + col) % 2 === 0 ? bagMat : darkBagMat);
+        const offsetX = (row % 2 === 0 ? 0 : 0.15) - 1.12 + col * 0.72;
+        bag.position.set(offsetX, 0.16 + row * 0.28, (row % 2 === 0 ? 0.02 : -0.02));
+        bag.castShadow = true;
+        bag.receiveShadow = true;
+        grp.add(bag);
+      }
+    }
+    return grp;
+  }
+
+  if (type === 'pillar') {
+    const grp = new THREE.Group();
+    const concreteMat = new THREE.MeshStandardMaterial({ map: createFloorTexture(), color: color || '#475569', roughness: 0.8 });
+    const trimMat = new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.6, metalness: 0.4 });
+
+    const base = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.35, 1.25), trimMat);
+    base.position.y = 0.175;
+    grp.add(base);
+
+    const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.92, 3.8, 0.92), concreteMat);
+    shaft.position.y = 2.25;
+    shaft.castShadow = true;
+    shaft.receiveShadow = true;
+    grp.add(shaft);
+
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.35, 1.25), trimMat);
+    cap.position.y = 4.325;
+    grp.add(cap);
+    return grp;
+  }
+
+  return null;
 }
 
 export class GameEngine {
@@ -221,7 +477,7 @@ export class GameEngine {
     pistol: {
       id: 'pistol',
       name: 'M1911',
-      papName: 'Mustang & Sally',
+      papName: 'Twin Vipers',
       isPap: false,
       type: 'pistol',
       damage: 40,
@@ -250,7 +506,7 @@ export class GameEngine {
     },
     ar: {
       id: 'ar',
-      name: 'KN-44',
+      name: 'VX-44',
       papName: 'Annihilator-44',
       isPap: false,
       type: 'ar',
@@ -265,7 +521,7 @@ export class GameEngine {
     },
     shotgun: {
       id: 'shotgun',
-      name: 'KRM-262',
+      name: 'SG-26',
       papName: "Dragon's Breath",
       isPap: false,
       type: 'shotgun',
@@ -280,10 +536,40 @@ export class GameEngine {
       color: '#ff4422',
       papColor: '#ffaa00',
     },
+    sniper: {
+      id: 'sniper',
+      name: 'SR-50',
+      papName: 'Apex Executioner',
+      isPap: false,
+      type: 'sniper',
+      damage: 210,
+      fireRate: 0.85,
+      clipSize: 5,
+      maxReserve: 35,
+      reloadTime: 2.5,
+      price: 2000,
+      color: '#38bdf8',
+      papColor: '#00ffff',
+    },
+    lmg: {
+      id: 'lmg',
+      name: 'MG42',
+      papName: 'Barrage Shredder',
+      isPap: false,
+      type: 'lmg',
+      damage: 52,
+      fireRate: 0.075,
+      clipSize: 75,
+      maxReserve: 300,
+      reloadTime: 3.1,
+      price: 2500,
+      color: '#f59e0b',
+      papColor: '#00ffff',
+    },
     raygun: {
       id: 'raygun',
-      name: 'Ray Gun',
-      papName: "Porter's X2 Ray Gun",
+      name: 'Plasma Blaster',
+      papName: 'X2 Hyper-Plasma',
       isPap: false,
       type: 'raygun',
       damage: 240,
@@ -291,7 +577,7 @@ export class GameEngine {
       clipSize: 20,
       maxReserve: 120,
       reloadTime: 1.9,
-      price: 950,
+      price: 4000,
       color: '#22ff66',
       papColor: '#00ffff',
     },
@@ -340,6 +626,8 @@ export class GameEngine {
   private playerLegR: THREE.Group = new THREE.Group();
   private legWalkTime: number = 0;
   private playerFlashlight!: THREE.SpotLight;
+  public isFlashlightOn: boolean = true;
+  private flashlightLensMat: THREE.MeshStandardMaterial | null = null;
   private sconceLights: THREE.PointLight[] = [];
 
   // Wave / Round Manager
@@ -364,6 +652,7 @@ export class GameEngine {
   };
 
   private ambientLight!: THREE.AmbientLight;
+  private defaultRoomEnv: THREE.Texture | null = null;
 
   public setSensitivity(val: number) {
     this.settings.mouseSensitivity = val;
@@ -373,9 +662,9 @@ export class GameEngine {
   public setWorldBrightness(val: number) {
     this.settings.worldBrightness = val;
     if (this.ambientLight) {
-      this.ambientLight.intensity = 0.35 + val * 0.6;
+      this.ambientLight.intensity = this.activeMapConfig ? 0.04 * val : 0.35 + val * 0.6;
     }
-    if (this.renderer) {
+    if (this.renderer && !this.activeMapConfig) {
       this.renderer.toneMappingExposure = 0.7 + val * 0.55;
     }
     this.onStateUpdate?.();
@@ -398,10 +687,27 @@ export class GameEngine {
 
   public setFlashlightIntensity(val: number) {
     this.settings.flashlightIntensity = val;
-    if (this.playerFlashlight) {
-      this.playerFlashlight.intensity = val;
-    }
+    this.applyFlashlightState();
     this.onStateUpdate?.();
+  }
+
+  public toggleFlashlight() {
+    this.isFlashlightOn = !this.isFlashlightOn;
+    this.applyFlashlightState();
+    soundEngine.playFlashlightClick(this.isFlashlightOn);
+    this.onStateUpdate?.();
+  }
+
+  private applyFlashlightState() {
+    if (this.playerFlashlight) {
+      this.playerFlashlight.intensity = this.isFlashlightOn
+        ? this.settings.flashlightIntensity * 14
+        : 0;
+    }
+    if (this.flashlightLensMat) {
+      this.flashlightLensMat.emissiveIntensity = this.isFlashlightOn ? 2.5 : 0;
+      this.flashlightLensMat.color.set(this.isFlashlightOn ? '#e5f4ff' : '#1e293b');
+    }
   }
 
   public setInvertY(val: boolean) {
@@ -466,7 +772,8 @@ export class GameEngine {
     // Procedural Studio Environment Reflection Map with safe fallback
     try {
       const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
-      this.scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
+      this.defaultRoomEnv = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
+      this.scene.environment = this.defaultRoomEnv;
       pmremGenerator.dispose();
     } catch (e) {
       console.warn('RoomEnvironment generator safely bypassed:', e);
@@ -484,8 +791,13 @@ export class GameEngine {
 
   public isMapLoaded: boolean = false;
   public activeMapConfig?: CustomMapConfig;
-  private customSolidBoxes: { minX: number; maxX: number; minZ: number; maxZ: number }[] = [];
+  private customSolidBoxes: { minX: number; maxX: number; minZ: number; maxZ: number; minY: number; maxY: number }[] = [];
   private customZombieSpawners: THREE.Vector3[] = [];
+  private customSpawnPos: THREE.Vector3 = new THREE.Vector3(0, 1.6, 0);
+  private customSpawnYaw: number = 0;
+  private explosiveBarrels: { id: string; mesh: THREE.Group; position: THREE.Vector3; exploded: boolean; radius: number }[] = [];
+  private customTeleporters: THREE.Vector3[] = [];
+  private lastTeleportTime: number = 0;
 
   public loadMap(customConfig?: CustomMapConfig) {
     if (this.isMapLoaded) return;
@@ -512,6 +824,9 @@ export class GameEngine {
     if (this.activeMapConfig) {
       this.setupCustomMap(this.activeMapConfig);
     } else {
+      this.scene.environment = this.defaultRoomEnv;
+      this.scene.background = new THREE.Color('#101522');
+      this.scene.fog = new THREE.Fog('#101522', 12, 42);
       this.setupLighting();
       this.setupRoom();
       this.setupWindowBarriers();
@@ -531,25 +846,33 @@ export class GameEngine {
   }
 
   private setupCustomMap(config: CustomMapConfig) {
-    this.ambientLight = new THREE.AmbientLight(config.ambientColor || '#3d4b64', this.settings.worldBrightness);
+    // Custom maps rely on placed Light Blocks & Player Flashlight so dark rooms stay genuinely dark
+    this.scene.environment = null;
+    this.scene.background = new THREE.Color('#030508');
+    this.scene.fog = new THREE.Fog('#030508', 18, 65);
+
+    this.ambientLight = new THREE.AmbientLight(config.ambientColor || '#0b0f18', 0.04 * this.settings.worldBrightness);
     this.scene.add(this.ambientLight);
 
-    const hemi = new THREE.HemisphereLight('#566d94', '#201815', 1.0);
-    this.scene.add(hemi);
-
-    this.playerFlashlight = new THREE.SpotLight('#e5f2ff', 4.5, 26, Math.PI / 4.5, 0.4, 1.2);
-    this.playerFlashlight.position.set(0, 0, 0);
+    this.playerFlashlight = new THREE.SpotLight('#e5f2ff', 0, 42, Math.PI / 5.5, 0.5, 0.65);
+    this.playerFlashlight.position.set(0.12, -0.1, -0.2);
     this.camera.add(this.playerFlashlight);
     this.scene.add(this.playerFlashlight.target);
+    this.applyFlashlightState();
 
     this.barriers = [];
     this.barrierMeshes = [];
     this.customSolidBoxes = [];
     this.customZombieSpawners = [];
+    this.explosiveBarrels = [];
+    this.customTeleporters = [];
     this.sconceLights = [];
+    this.customSpawnPos.set(0, 1.6, 0);
+    this.customSpawnYaw = 0;
     this.playerPos.set(0, 1.6, 0);
 
     let barrierCount = 0;
+    let playerSpawnObj: CustomMapConfig['objects'][number] | null = null;
 
     config.objects.forEach((obj) => {
       if (obj.type === 'zombie_spawn') {
@@ -574,22 +897,60 @@ export class GameEngine {
         mesh.castShadow = true;
         this.scene.add(mesh);
 
-        if (obj.scale.y >= 0.4) {
-          const ry = obj.rotation?.y || 0;
-          const maxExtX = Math.abs(Math.cos(ry) * (obj.scale.x / 2)) + Math.abs(Math.sin(ry) * (obj.scale.z / 2));
-          const maxExtZ = Math.abs(Math.sin(ry) * (obj.scale.x / 2)) + Math.abs(Math.cos(ry) * (obj.scale.z / 2));
-          this.customSolidBoxes.push({
-            minX: obj.position.x - maxExtX,
-            maxX: obj.position.x + maxExtX,
-            minZ: obj.position.z - maxExtZ,
-            maxZ: obj.position.z + maxExtZ,
-          });
-        }
+        const ry = obj.rotation?.y || 0;
+        const maxExtX = Math.abs(Math.cos(ry) * (obj.scale.x / 2)) + Math.abs(Math.sin(ry) * (obj.scale.z / 2));
+        const maxExtZ = Math.abs(Math.sin(ry) * (obj.scale.x / 2)) + Math.abs(Math.cos(ry) * (obj.scale.z / 2));
+        this.customSolidBoxes.push({
+          minX: obj.position.x - maxExtX,
+          maxX: obj.position.x + maxExtX,
+          minZ: obj.position.z - maxExtZ,
+          maxZ: obj.position.z + maxExtZ,
+          minY: obj.position.y - obj.scale.y / 2,
+          maxY: obj.position.y + obj.scale.y / 2,
+        });
       } else if (obj.type === 'light') {
-        const pLight = new THREE.PointLight(obj.color, obj.intensity, obj.distance);
+        const lightLevel = Math.max(0, obj.intensity ?? 0);
+        const effIntensity = lightLevel * 6;
+        const pLight = new THREE.PointLight(obj.color, effIntensity, obj.distance || 20, 1.0);
         pLight.position.set(obj.position.x, obj.position.y, obj.position.z);
-        pLight.castShadow = true;
+
+        // Allow up to 2 shadow-casting custom lights to keep walls blocking light without overflowing WebGL texture units
+        const shadowLightCount = this.scene.children.filter(
+          (c) => (c as THREE.PointLight).isPointLight && c.castShadow
+        ).length;
+        if (lightLevel > 0 && shadowLightCount < 2) {
+          pLight.castShadow = true;
+          pLight.shadow.mapSize.width = 512;
+          pLight.shadow.mapSize.height = 512;
+          pLight.shadow.camera.far = obj.distance || 20;
+          pLight.shadow.bias = -0.001;
+        }
         this.scene.add(pLight);
+
+        // Physical Light Block Fixture (emits visual glow matching its light level)
+        const fixtureGrp = new THREE.Group();
+        fixtureGrp.position.set(obj.position.x, obj.position.y, obj.position.z);
+        fixtureGrp.rotation.set(obj.rotation.x, obj.rotation.y, obj.rotation.z);
+        fixtureGrp.scale.set(obj.scale?.x || 1, obj.scale?.y || 1, obj.scale?.z || 1);
+
+        const housing = new THREE.Mesh(
+          new THREE.BoxGeometry(0.56, 0.22, 0.56),
+          new THREE.MeshStandardMaterial({ color: '#181e29', roughness: 0.5, metalness: 0.7 })
+        );
+        housing.position.y = 0.14;
+        fixtureGrp.add(housing);
+
+        const coreMat = new THREE.MeshStandardMaterial({
+          color: lightLevel > 0 ? obj.color : '#1f2937',
+          emissive: obj.color,
+          emissiveIntensity: lightLevel > 0 ? Math.min(4.0, 0.35 + lightLevel * 0.4) : 0,
+          roughness: 0.2,
+        });
+        const core = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.28, 0.44), coreMat);
+        core.position.y = -0.04;
+        fixtureGrp.add(core);
+
+        this.scene.add(fixtureGrp);
       } else if (obj.type === 'perk_juggernog' || obj.type === 'perk_speedcola' || obj.type === 'perk_doubletap') {
         const perkType = obj.type === 'perk_juggernog' ? 'juggernog' : obj.type === 'perk_speedcola' ? 'speedCola' : 'doubleTap';
         const grp = new THREE.Group();
@@ -612,7 +973,8 @@ export class GameEngine {
 
         this.customSolidBoxes.push({
           minX: obj.position.x - 0.7, maxX: obj.position.x + 0.7,
-          minZ: obj.position.z - 0.6, maxZ: obj.position.z + 0.6
+          minZ: obj.position.z - 0.6, maxZ: obj.position.z + 0.6,
+          minY: obj.position.y, maxY: obj.position.y + 2.6,
         });
       } else if (obj.type === 'pack_a_punch') {
         const grp = new THREE.Group();
@@ -635,7 +997,8 @@ export class GameEngine {
 
         this.customSolidBoxes.push({
           minX: obj.position.x - 1.2, maxX: obj.position.x + 1.2,
-          minZ: obj.position.z - 0.6, maxZ: obj.position.z + 0.6
+          minZ: obj.position.z - 0.6, maxZ: obj.position.z + 0.6,
+          minY: obj.position.y, maxY: obj.position.y + 2.8,
         });
       } else if (obj.type === 'mystery_box') {
         const grp = new THREE.Group();
@@ -686,32 +1049,106 @@ export class GameEngine {
 
         this.scene.add(grp);
         this.barrierMeshes.push({ group: grp, planks });
-      } else if (obj.type === 'wall_buy_smg' || obj.type === 'wall_buy_ar' || obj.type === 'wall_buy_shotgun') {
-        const name = obj.type === 'wall_buy_smg' ? 'MP40' : obj.type === 'wall_buy_ar' ? 'KN-44' : 'KRM-262';
-        const price = obj.type === 'wall_buy_smg' ? 1000 : obj.type === 'wall_buy_ar' ? 1500 : 1200;
-        const wepType = obj.type === 'wall_buy_smg' ? 'smg' : obj.type === 'wall_buy_ar' ? 'ar' : 'shotgun';
+      } else if (obj.type in WALL_BUY_CONFIG) {
+        const grp = createCustomPropMesh(obj.type, obj.color);
+        if (grp) {
+          grp.position.set(obj.position.x, obj.position.y, obj.position.z);
+          grp.rotation.set(obj.rotation.x, obj.rotation.y, obj.rotation.z);
+          grp.scale.set(obj.scale?.x || 1, obj.scale?.y || 1, obj.scale?.z || 1);
+          this.scene.add(grp);
+        }
+      } else if (
+        obj.type === 'ammo_crate' ||
+        obj.type === 'explosive_barrel' ||
+        obj.type === 'teleporter' ||
+        obj.type === 'crate_cover' ||
+        obj.type === 'sandbag_wall' ||
+        obj.type === 'pillar'
+      ) {
+        const grp = createCustomPropMesh(obj.type, obj.color);
+        if (grp) {
+          const sx = obj.scale?.x || 1;
+          const sy = obj.scale?.y || 1;
+          const sz = obj.scale?.z || 1;
+          grp.position.set(obj.position.x, obj.position.y, obj.position.z);
+          grp.rotation.set(obj.rotation.x, obj.rotation.y, obj.rotation.z);
+          grp.scale.set(sx, sy, sz);
+          this.scene.add(grp);
 
-        const grp = new THREE.Group();
-        grp.position.set(obj.position.x, obj.position.y, obj.position.z);
-        grp.rotation.set(obj.rotation.x, obj.rotation.y, obj.rotation.z);
-
-        const tex = createWallBuyChalkTexture(name, price);
-        const plaqueMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.5 });
-        const plaque = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.1, 0.08), plaqueMat);
-        grp.add(plaque);
-
-        const gunModel = createWeapon3DModel(wepType, false);
-        gunModel.scale.set(1.1, 1.1, 1.1);
-        gunModel.position.set(0, 0.18, 0.1);
-        gunModel.rotation.y = Math.PI / 2;
-        grp.add(gunModel);
-
-        this.scene.add(grp);
+          if (obj.type === 'explosive_barrel') {
+            this.explosiveBarrels.push({
+              id: obj.id,
+              mesh: grp,
+              position: new THREE.Vector3(obj.position.x, obj.position.y + 0.6 * sy, obj.position.z),
+              exploded: false,
+              radius: 0.55 * Math.max(sx, sz),
+            });
+          } else if (obj.type === 'teleporter') {
+            this.customTeleporters.push(new THREE.Vector3(obj.position.x, obj.position.y, obj.position.z));
+          } else {
+            // Solid collider bounds for cover props & ammo crate
+            const baseW = obj.type === 'ammo_crate' ? 1.3 : obj.type === 'crate_cover' ? 1.4 : obj.type === 'sandbag_wall' ? 3.0 : 1.0;
+            const baseH = obj.type === 'ammo_crate' ? 0.85 : obj.type === 'crate_cover' ? 1.2 : obj.type === 'sandbag_wall' ? 0.95 : 4.5;
+            const baseD = obj.type === 'ammo_crate' ? 0.8 : obj.type === 'crate_cover' ? 1.4 : obj.type === 'sandbag_wall' ? 0.75 : 1.0;
+            const ry = obj.rotation?.y || 0;
+            const maxExtX = Math.abs(Math.cos(ry) * ((baseW * sx) / 2)) + Math.abs(Math.sin(ry) * ((baseD * sz) / 2));
+            const maxExtZ = Math.abs(Math.sin(ry) * ((baseW * sx) / 2)) + Math.abs(Math.cos(ry) * ((baseD * sz) / 2));
+            this.customSolidBoxes.push({
+              minX: obj.position.x - maxExtX,
+              maxX: obj.position.x + maxExtX,
+              minZ: obj.position.z - maxExtZ,
+              maxZ: obj.position.z + maxExtZ,
+              minY: obj.position.y,
+              maxY: obj.position.y + baseH * sy,
+            });
+          }
+        }
       } else if (obj.type === 'player_spawn') {
-        this.playerPos.set(obj.position.x, obj.position.y, obj.position.z);
-        this.camera.position.copy(this.playerPos);
+        playerSpawnObj = obj;
       }
     });
+
+    // Resolve exact player spawn position after all custom blocks/floors are registered
+    let spawnX = 0;
+    let spawnZ = 0;
+    let spawnFeetY = 0;
+    let spawnYaw = 0;
+
+    if (playerSpawnObj) {
+      const sp: CustomMapConfig['objects'][number] = playerSpawnObj;
+      spawnX = sp.position.x;
+      spawnZ = sp.position.z;
+      spawnYaw = sp.rotation?.y || 0;
+
+      let supportY = -Infinity;
+      for (const b of this.customSolidBoxes) {
+        if (spawnX >= b.minX && spawnX <= b.maxX && spawnZ >= b.minZ && spawnZ <= b.maxZ) {
+          if (b.maxY <= sp.position.y + 0.5 && b.maxY > supportY) {
+            supportY = b.maxY;
+          }
+        }
+      }
+      if (supportY === -Infinity) {
+        supportY = 0;
+      }
+
+      if (sp.position.y <= supportY + 0.5) {
+        spawnFeetY = Math.max(supportY, sp.position.y);
+      } else if (Math.abs(sp.position.y - (supportY + 1.6)) <= 0.35) {
+        spawnFeetY = supportY;
+      } else {
+        spawnFeetY = sp.position.y;
+      }
+    }
+
+    this.customSpawnPos.set(spawnX, spawnFeetY + 1.6, spawnZ);
+    this.customSpawnYaw = spawnYaw;
+    this.playerPos.copy(this.customSpawnPos);
+    this.playerVel.set(0, 0, 0);
+    this.isGrounded = true;
+    this.yaw = spawnYaw;
+    this.pitch = 0;
+    this.camera.position.copy(this.playerPos);
   }
 
   public unloadMap() {
@@ -760,12 +1197,26 @@ export class GameEngine {
     this.playerHp = 100;
     this.maxHp = 100;
     this.playerPos.set(0, 1.6, 0);
+    this.customSpawnPos.set(0, 1.6, 0);
+    this.customSpawnYaw = 0;
+    this.customSolidBoxes = [];
+    this.customZombieSpawners = [];
+    this.explosiveBarrels = [];
+    this.customTeleporters = [];
+    this.yaw = 0;
+    this.pitch = 0;
+    this.isGrounded = true;
     this.perks = { juggernog: false, speedCola: false, doubleTap: false };
     this.keys = {};
     this.playerVel.set(0, 0, 0);
+    this.flashlightLensMat = null;
+    this.isFlashlightOn = true;
 
     this.isMapLoaded = false;
     this.activeMapConfig = undefined;
+    this.scene.environment = this.defaultRoomEnv;
+    this.scene.background = new THREE.Color('#101522');
+    this.scene.fog = new THREE.Fog('#101522', 12, 42);
 
     // Clear WebGL drawing buffer and render clean dark background once
     if (this.renderer) {
@@ -795,10 +1246,11 @@ export class GameEngine {
     this.scene.add(centerLight);
 
     // Player Tactical Flashlight attached to camera
-    this.playerFlashlight = new THREE.SpotLight('#e5f2ff', 4.5, 26, Math.PI / 4.5, 0.4, 1.2);
-    this.playerFlashlight.position.set(0, 0, 0);
+    this.playerFlashlight = new THREE.SpotLight('#e5f2ff', 0, 42, Math.PI / 5.5, 0.5, 0.65);
+    this.playerFlashlight.position.set(0.12, -0.1, -0.2);
     this.camera.add(this.playerFlashlight);
     this.scene.add(this.playerFlashlight.target);
+    this.applyFlashlightState();
 
     // 4 Wrought-Iron Lantern Wall Sconces (One above each window!)
     const sconcePositions = [
@@ -1018,9 +1470,9 @@ export class GameEngine {
 
   private setupPerkMachines() {
     const perksData = [
-      { type: 'juggernog' as const, color: '#dd1111', pos: new THREE.Vector3(6, 0, 11.1), ry: Math.PI, price: 2500, label: 'Juggernog' },
-      { type: 'speedCola' as const, color: '#11dd44', pos: new THREE.Vector3(6, 0, -11.1), ry: 0, price: 3000, label: 'Speed Cola' },
-      { type: 'doubleTap' as const, color: '#eedd11', pos: new THREE.Vector3(-6, 0, -11.1), ry: 0, price: 2000, label: 'Double Tap' },
+      { type: 'juggernog' as const, color: '#dd1111', pos: new THREE.Vector3(6, 0, 11.1), ry: Math.PI, price: 2500, label: 'Titan Tonic' },
+      { type: 'speedCola' as const, color: '#11dd44', pos: new THREE.Vector3(6, 0, -11.1), ry: 0, price: 3000, label: 'Blitz Brew' },
+      { type: 'doubleTap' as const, color: '#eedd11', pos: new THREE.Vector3(-6, 0, -11.1), ry: 0, price: 2000, label: 'Fury Fizz' },
     ];
 
     perksData.forEach((p) => {
@@ -1118,8 +1570,8 @@ export class GameEngine {
   private setupWallBuys() {
     const wallBuys = [
       { type: 'smg', name: 'MP40', price: 1000, pos: new THREE.Vector3(-11.6, 2.0, -5.0), ry: Math.PI / 2 },
-      { type: 'ar', name: 'KN-44', price: 1500, pos: new THREE.Vector3(11.6, 2.0, 5.0), ry: -Math.PI / 2 },
-      { type: 'shotgun', name: 'KRM-262', price: 1200, pos: new THREE.Vector3(-11.6, 2.0, 5.0), ry: Math.PI / 2 },
+      { type: 'ar', name: 'VX-44', price: 1500, pos: new THREE.Vector3(11.6, 2.0, 5.0), ry: -Math.PI / 2 },
+      { type: 'shotgun', name: 'SG-26', price: 1200, pos: new THREE.Vector3(-11.6, 2.0, 5.0), ry: Math.PI / 2 },
     ];
 
     wallBuys.forEach((wb) => {
@@ -1164,6 +1616,34 @@ export class GameEngine {
     this.muzzleFlashLight = new THREE.PointLight('#ffaa22', 0, 4);
     this.muzzleFlashLight.position.set(0.0, 0.04, -0.52);
     this.gunGroup.add(this.muzzleFlashLight);
+
+    // Weapon-mounted Tactical Flashlight module (visible on side/underbarrel rail)
+    const flashlightBody = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.018, 0.018, 0.14, 10),
+      new THREE.MeshStandardMaterial({ color: '#1a202c', metalness: 0.75, roughness: 0.35 })
+    );
+    flashlightBody.rotation.x = Math.PI / 2;
+    flashlightBody.position.set(-0.042, -0.025, -0.22);
+    this.gunGroup.add(flashlightBody);
+
+    const bezel = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.022, 0.019, 0.025, 10),
+      new THREE.MeshStandardMaterial({ color: '#475569', metalness: 0.85, roughness: 0.25 })
+    );
+    bezel.rotation.x = Math.PI / 2;
+    bezel.position.set(-0.042, -0.025, -0.295);
+    this.gunGroup.add(bezel);
+
+    this.flashlightLensMat = new THREE.MeshStandardMaterial({
+      color: this.isFlashlightOn ? '#e5f4ff' : '#1e293b',
+      emissive: '#bde3ff',
+      emissiveIntensity: this.isFlashlightOn ? 2.5 : 0,
+      roughness: 0.15,
+    });
+    const lens = new THREE.Mesh(new THREE.CircleGeometry(0.017, 10), this.flashlightLensMat);
+    lens.rotation.y = Math.PI;
+    lens.position.set(-0.042, -0.025, -0.309);
+    this.gunGroup.add(lens);
   }
 
   private setupPlayerBodyRig() {
@@ -1211,24 +1691,36 @@ export class GameEngine {
     this.playerBodyRig.add(this.playerLegR);
   }
 
-  private resolveMapCollisions(pos: THREE.Vector3, radius: number = 0.35) {
-    const boxes =
-      this.activeMapConfig && this.customSolidBoxes.length > 0
-        ? this.customSolidBoxes
-        : [
-            // Pack-a-Punch Machine
-            { minX: -7.2, maxX: -4.8, minZ: 10.6, maxZ: 11.8 },
-            // Juggernog Machine
-            { minX: 5.3, maxX: 6.7, minZ: 10.5, maxZ: 11.7 },
-            // Speed Cola Machine
-            { minX: 5.3, maxX: 6.7, minZ: -11.7, maxZ: -10.5 },
-            // Double Tap Machine
-            { minX: -6.7, maxX: -5.3, minZ: -11.7, maxZ: -10.5 },
-            // Mystery Box
-            { minX: 10.65, maxX: 11.75, minZ: -6.1, maxZ: -3.9 },
-          ];
+  private resolveMapCollisions(
+    pos: THREE.Vector3,
+    radius: number = 0.35,
+    entityFeetY?: number,
+    entityHeight: number = 1.75
+  ) {
+    const isCustom = Boolean(this.activeMapConfig);
+    const boxes: { minX: number; maxX: number; minZ: number; maxZ: number; minY?: number; maxY?: number }[] = isCustom
+      ? this.customSolidBoxes
+      : [
+          // Pack-a-Punch Machine
+          { minX: -7.2, maxX: -4.8, minZ: 10.6, maxZ: 11.8 },
+          // Juggernog Machine
+          { minX: 5.3, maxX: 6.7, minZ: 10.5, maxZ: 11.7 },
+          // Speed Cola Machine
+          { minX: 5.3, maxX: 6.7, minZ: -11.7, maxZ: -10.5 },
+          // Double Tap Machine
+          { minX: -6.7, maxX: -5.3, minZ: -11.7, maxZ: -10.5 },
+          // Mystery Box
+          { minX: 10.65, maxX: 11.75, minZ: -6.1, maxZ: -3.9 },
+        ];
 
     boxes.forEach((b) => {
+      // In custom maps, ignore floors/platforms below or at entity feet and ceilings above entity head
+      if (entityFeetY !== undefined && b.minY !== undefined && b.maxY !== undefined) {
+        if (b.maxY <= entityFeetY + 0.25 || b.minY >= entityFeetY + entityHeight) {
+          return;
+        }
+      }
+
       const closestX = Math.max(b.minX, Math.min(b.maxX, pos.x));
       const closestZ = Math.max(b.minZ, Math.min(b.maxZ, pos.z));
 
@@ -1364,6 +1856,9 @@ export class GameEngine {
       if (e.code === 'KeyE') {
         this.isHoldingInteract = true;
         this.triggerInteraction();
+      }
+      if (e.code === 'KeyT' && !e.repeat) {
+        this.toggleFlashlight();
       }
     });
 
@@ -1621,6 +2116,32 @@ export class GameEngine {
         continue;
       }
 
+      // Check Explosive Barrels raycast / proximity hit
+      const activeBarrels = this.explosiveBarrels.filter((eb) => !eb.exploded);
+      if (activeBarrels.length > 0) {
+        const barrelMeshes = activeBarrels.map((eb) => eb.mesh);
+        const barrelHits = raycaster.intersectObjects(barrelMeshes, true);
+        if (barrelHits.length > 0) {
+          const hitObj = barrelHits[0].object;
+          const barrel = activeBarrels.find((eb) => {
+            let p: THREE.Object3D | null = hitObj;
+            while (p) {
+              if (p === eb.mesh) return true;
+              p = p.parent;
+            }
+            return false;
+          });
+          if (barrel) {
+            this.detonateExplosiveBarrel(barrel);
+            this.scene.remove(b.mesh);
+            b.mesh.geometry.dispose();
+            (b.mesh.material as THREE.Material).dispose();
+            this.bullets.splice(i, 1);
+            continue;
+          }
+        }
+      }
+
       // Check if bullet is passing through a window barrier opening
       const isPassingThroughWindow = this.barriers.some((b) => {
         const dx = nextPos.x - b.position.x;
@@ -1630,13 +2151,15 @@ export class GameEngine {
       });
 
       // Check wall bounds collision
+      const maxRange = this.activeMapConfig ? 120.0 : 28.0;
       const isOutOfBounds =
         nextPos.y <= 0 ||
-        nextPos.y >= 5.5 ||
-        Math.abs(nextPos.x) >= 28.0 ||
-        Math.abs(nextPos.z) >= 28.0;
+        nextPos.y >= (this.activeMapConfig ? 40.0 : 5.5) ||
+        Math.abs(nextPos.x) >= maxRange ||
+        Math.abs(nextPos.z) >= maxRange;
 
       const isHittingSolidWall =
+        !this.activeMapConfig &&
         !isPassingThroughWindow &&
         (Math.abs(nextPos.x) >= 11.6 || Math.abs(nextPos.z) >= 11.6);
 
@@ -1712,11 +2235,67 @@ export class GameEngine {
     this.stats.isRoundBreak = true;
     this.stats.roundBreakTimer = 5;
 
+    // Respawn explosive barrels at start of new wave
+    this.explosiveBarrels.forEach((eb) => {
+      eb.exploded = false;
+      eb.mesh.visible = true;
+    });
+
     soundEngine.playRoundChange(true);
     this.onStateUpdate?.();
 
     // Spawn count formula
     this.zombiesToSpawn = 6 + (roundNum - 1) * 4;
+  }
+
+  private detonateExplosiveBarrel(barrel: { id: string; mesh: THREE.Group; position: THREE.Vector3; exploded: boolean; radius: number }) {
+    if (barrel.exploded) return;
+    barrel.exploded = true;
+    barrel.mesh.visible = false;
+    soundEngine.playExplosion();
+
+    // Explosion fiery particle burst
+    for (let i = 0; i < 28; i++) {
+      const col = i % 3 === 0 ? '#ff3300' : i % 3 === 1 ? '#ffaa00' : '#444444';
+      const pMesh = new THREE.Mesh(
+        new THREE.BoxGeometry(0.18, 0.18, 0.18),
+        new THREE.MeshBasicMaterial({ color: col })
+      );
+      pMesh.position.copy(barrel.position);
+      this.scene.add(pMesh);
+      const vel = new THREE.Vector3(
+        (Math.random() - 0.5) * 10,
+        Math.random() * 8 + 2,
+        (Math.random() - 0.5) * 10
+      );
+      this.particles.push({ mesh: pMesh, velocity: vel, life: 0.65, maxLife: 0.65, color: col });
+    }
+
+    // Blast damage to nearby zombies
+    const blastRadius = 6.5;
+    let kills = 0;
+    for (let i = this.zombies.length - 1; i >= 0; i--) {
+      const z = this.zombies[i];
+      const zPos = z.meshGroup.position;
+      const dist = zPos.distanceTo(barrel.position);
+      if (dist <= blastRadius) {
+        const dmg = 320 * (1 - dist / (blastRadius * 1.2));
+        z.health -= dmg;
+        this.spawnBloodParticles(zPos.clone().add(new THREE.Vector3(0, 1, 0)));
+        if (z.health <= 0) {
+          this.scene.remove(z.meshGroup);
+          this.zombies.splice(i, 1);
+          kills++;
+          this.stats.kills++;
+          this.addScore(80, 'BARREL BLAST KILL!');
+        }
+      }
+    }
+    if (kills > 0) {
+      soundEngine.playHitmarker(true, false);
+      this.onHitmarker?.(true, false);
+      this.checkRoundCompletion();
+    }
   }
 
   private spawnZombie() {
@@ -1931,58 +2510,71 @@ export class GameEngine {
 
         if (dist < 2.5) {
           if (obj.type === 'perk_juggernog' && !this.perks.juggernog) {
-            this.currentPrompt = `PRESS 'E' FOR JUGGERNOG [2,500 PTS]`;
+            this.currentPrompt = `PRESS 'E' FOR TITAN TONIC [2,500 PTS]`;
             this.interactTargetAction = () => this.buyPerk('juggernog', 2500);
           } else if (obj.type === 'perk_speedcola' && !this.perks.speedCola) {
-            this.currentPrompt = `PRESS 'E' FOR SPEED COLA [3,000 PTS]`;
+            this.currentPrompt = `PRESS 'E' FOR BLITZ BREW [3,000 PTS]`;
             this.interactTargetAction = () => this.buyPerk('speedCola', 3000);
           } else if (obj.type === 'perk_doubletap' && !this.perks.doubleTap) {
-            this.currentPrompt = `PRESS 'E' FOR DOUBLE TAP [2,000 PTS]`;
+            this.currentPrompt = `PRESS 'E' FOR FURY FIZZ [2,000 PTS]`;
             this.interactTargetAction = () => this.buyPerk('doubleTap', 2000);
           } else if (obj.type === 'pack_a_punch') {
             const curWep = this.playerWeapons[this.currentWeaponIndex];
             if (curWep && !curWep.stats.isPap) {
-              this.currentPrompt = `PRESS 'E' TO PACK-A-PUNCH ${curWep.stats.name} [5,000 PTS]`;
+              this.currentPrompt = `PRESS 'E' TO HYPER-FORGE ${curWep.stats.name} [5,000 PTS]`;
               this.interactTargetAction = () => this.packAPunchWeapon();
             }
           } else if (obj.type === 'mystery_box' && !this.isBoxSpinning) {
-            this.currentPrompt = `PRESS 'E' TO SPIN MYSTERY BOX [950 PTS]`;
+            this.currentPrompt = `PRESS 'E' TO OPEN ARMORY CHEST [950 PTS]`;
             this.interactTargetAction = () => this.spinMysteryBox();
-          } else if (obj.type === 'wall_buy_smg') {
-            this.currentPrompt = `PRESS 'E' TO BUY MP40 [1,000 PTS]`;
-            this.interactTargetAction = () => this.buyWallWeapon('smg');
-          } else if (obj.type === 'wall_buy_ar') {
-            this.currentPrompt = `PRESS 'E' TO BUY KN-44 [1,500 PTS]`;
-            this.interactTargetAction = () => this.buyWallWeapon('ar');
-          } else if (obj.type === 'wall_buy_shotgun') {
-            this.currentPrompt = `PRESS 'E' TO BUY KRM-262 SHOTGUN [1,200 PTS]`;
-            this.interactTargetAction = () => this.buyWallWeapon('shotgun');
+          } else if (obj.type in WALL_BUY_CONFIG) {
+            const cfg = WALL_BUY_CONFIG[obj.type];
+            const owned = this.playerWeapons.some((w) => w.stats.id === cfg.wepType);
+            this.currentPrompt = owned
+              ? `PRESS 'E' TO REFILL ${cfg.name} AMMO [${cfg.price.toLocaleString()} PTS]`
+              : `PRESS 'E' TO BUY ${cfg.name} [${cfg.price.toLocaleString()} PTS]`;
+            this.interactTargetAction = () => this.buyWallWeapon(cfg.wepType);
+          } else if (obj.type === 'ammo_crate') {
+            this.currentPrompt = `PRESS 'E' TO REFILL ALL WEAPON AMMO [750 PTS]`;
+            this.interactTargetAction = () => this.buyAmmoCrate();
+          } else if (obj.type === 'teleporter') {
+            if (this.customTeleporters.length >= 2) {
+              const now = Date.now();
+              if (now - this.lastTeleportTime >= 2500) {
+                this.currentPrompt = `PRESS 'E' TO TELEPORT ACROSS MAP`;
+                this.interactTargetAction = () => this.triggerTeleporter(obj.position);
+              } else {
+                this.currentPrompt = `TELEPORTER RECHARGING...`;
+              }
+            } else {
+              this.currentPrompt = `PLACE 2+ TELEPORTERS IN MAP MAKER TO LINK`;
+            }
           }
         }
       });
     } else {
-      // 2. Check Perk Machines
+      // 2. Check Power Brew Machines
       if (playerPos2D.distanceTo(new THREE.Vector2(6, 11.1)) < 2.5 && !this.perks.juggernog) {
-        this.currentPrompt = `PRESS 'E' FOR JUGGERNOG [2,500 PTS]`;
+        this.currentPrompt = `PRESS 'E' FOR TITAN TONIC [2,500 PTS]`;
         this.interactTargetAction = () => this.buyPerk('juggernog', 2500);
       } else if (playerPos2D.distanceTo(new THREE.Vector2(6, -11.1)) < 2.5 && !this.perks.speedCola) {
-        this.currentPrompt = `PRESS 'E' FOR SPEED COLA [3,000 PTS]`;
+        this.currentPrompt = `PRESS 'E' FOR BLITZ BREW [3,000 PTS]`;
         this.interactTargetAction = () => this.buyPerk('speedCola', 3000);
       } else if (playerPos2D.distanceTo(new THREE.Vector2(-6, -11.1)) < 2.5 && !this.perks.doubleTap) {
-        this.currentPrompt = `PRESS 'E' FOR DOUBLE TAP [2,000 PTS]`;
+        this.currentPrompt = `PRESS 'E' FOR FURY FIZZ [2,000 PTS]`;
         this.interactTargetAction = () => this.buyPerk('doubleTap', 2000);
       }
 
-      // 3. Check Pack-a-Punch (South-West wall: -6, 11.1)
+      // 3. Check Hyper-Forge (South-West wall: -6, 11.1)
       const curWep = this.playerWeapons[this.currentWeaponIndex];
       if (playerPos2D.distanceTo(new THREE.Vector2(-6, 11.1)) < 2.5 && !curWep.stats.isPap) {
-        this.currentPrompt = `PRESS 'E' TO PACK-A-PUNCH ${curWep.stats.name} [5,000 PTS]`;
+        this.currentPrompt = `PRESS 'E' TO HYPER-FORGE ${curWep.stats.name} [5,000 PTS]`;
         this.interactTargetAction = () => this.packAPunchWeapon();
       }
 
-      // 4. Check Mystery Box (East wall: 11.1, -5)
+      // 4. Check Armory Chest (East wall: 11.1, -5)
       if (playerPos2D.distanceTo(new THREE.Vector2(11.1, -5)) < 2.5 && !this.isBoxSpinning) {
-        this.currentPrompt = `PRESS 'E' TO SPIN MYSTERY BOX [950 PTS]`;
+        this.currentPrompt = `PRESS 'E' TO OPEN ARMORY CHEST [950 PTS]`;
         this.interactTargetAction = () => this.spinMysteryBox();
       }
 
@@ -1991,10 +2583,10 @@ export class GameEngine {
         this.currentPrompt = `PRESS 'E' TO BUY MP40 [1,000 PTS]`;
         this.interactTargetAction = () => this.buyWallWeapon('smg');
       } else if (playerPos2D.distanceTo(new THREE.Vector2(11.4, 5)) < 2.5) {
-        this.currentPrompt = `PRESS 'E' TO BUY KN-44 [1,500 PTS]`;
+        this.currentPrompt = `PRESS 'E' TO BUY VX-44 [1,500 PTS]`;
         this.interactTargetAction = () => this.buyWallWeapon('ar');
       } else if (playerPos2D.distanceTo(new THREE.Vector2(-11.4, 5)) < 2.5) {
-        this.currentPrompt = `PRESS 'E' TO BUY KRM-262 SHOTGUN [1,200 PTS]`;
+        this.currentPrompt = `PRESS 'E' TO BUY SG-26 SHOTGUN [1,200 PTS]`;
         this.interactTargetAction = () => this.buyWallWeapon('shotgun');
       }
     }
@@ -2071,11 +2663,48 @@ export class GameEngine {
     setTimeout(() => {
       this.isBoxSpinning = false;
       // Grant random high tier weapon or Ray Gun!
-      const roll = Math.random();
-      const newWepId = roll < 0.4 ? 'raygun' : roll < 0.7 ? 'ar' : 'shotgun';
+      const pool = ['raygun', 'sniper', 'lmg', 'ar', 'shotgun', 'smg'];
+      const newWepId = pool[Math.floor(Math.random() * pool.length)];
       this.grantWeapon(newWepId);
     }, 3000);
 
+    this.onStateUpdate?.();
+  }
+
+  private buyAmmoCrate() {
+    const price = 750;
+    if (this.stats.score < price) return;
+    this.stats.score -= price;
+    this.playerWeapons.forEach((w) => {
+      w.currentClip = w.stats.clipSize;
+      w.currentReserve = w.stats.maxReserve;
+      w.isReloading = false;
+    });
+    soundEngine.playReload();
+    this.onStateUpdate?.();
+  }
+
+  private triggerTeleporter(fromPos: { x: number; y: number; z: number }) {
+    if (this.customTeleporters.length < 2) return;
+    const now = Date.now();
+    if (now - this.lastTeleportTime < 2500) return;
+
+    let currentIdx = 0;
+    let minD = Infinity;
+    this.customTeleporters.forEach((tp, idx) => {
+      const d = Math.hypot(tp.x - fromPos.x, tp.z - fromPos.z);
+      if (d < minD) {
+        minD = d;
+        currentIdx = idx;
+      }
+    });
+
+    const nextTp = this.customTeleporters[(currentIdx + 1) % this.customTeleporters.length];
+    this.lastTeleportTime = now;
+    this.playerPos.set(nextTp.x, nextTp.y + 1.6, nextTp.z);
+    this.playerVel.set(0, 0, 0);
+    this.camera.position.copy(this.playerPos);
+    soundEngine.playTeleport();
     this.onStateUpdate?.();
   }
 
@@ -2156,11 +2785,6 @@ export class GameEngine {
     euler.y = this.yaw;
     this.camera.quaternion.setFromEuler(euler);
 
-    // Update Tactical Flashlight target position forward in camera direction
-    const camDir = new THREE.Vector3();
-    this.camera.getWorldDirection(camDir);
-    this.playerFlashlight.target.position.copy(this.playerPos).addScaledVector(camDir, 12);
-
     // WASD Movement
     const moveDir = new THREE.Vector3();
     if (this.keys['KeyW']) moveDir.z -= 1;
@@ -2205,13 +2829,15 @@ export class GameEngine {
       }
     });
 
-    // Resolve Map Objects Solid Collision (Pack-a-Punch, Perk Machines, Mystery Box)
-    this.resolveMapCollisions(this.playerPos);
+    // Resolve Map Objects Solid Collision (Walls, Platforms, Pack-a-Punch, Perk Machines, Mystery Box)
+    this.resolveMapCollisions(this.playerPos, 0.35, this.playerPos.y - 1.6, 1.75);
 
-    // Room Wall Bounds Collision (-11.2 to +11.2)
-    const maxB = 11.2;
-    this.playerPos.x = Math.max(-maxB, Math.min(maxB, this.playerPos.x));
-    this.playerPos.z = Math.max(-maxB, Math.min(maxB, this.playerPos.z));
+    // Room Wall Bounds Collision (-11.2 to +11.2) only for default built-in room
+    if (!this.activeMapConfig) {
+      const maxB = 11.2;
+      this.playerPos.x = Math.max(-maxB, Math.min(maxB, this.playerPos.x));
+      this.playerPos.z = Math.max(-maxB, Math.min(maxB, this.playerPos.z));
+    }
 
     // Animate First-Person Player Body Leg Swinging when walking
     if (moveDir.length() > 0) {
@@ -2222,6 +2848,30 @@ export class GameEngine {
       this.playerLegL.rotation.x = THREE.MathUtils.damp(this.playerLegL.rotation.x, 0, 10, delta);
       this.playerLegR.rotation.x = THREE.MathUtils.damp(this.playerLegR.rotation.x, 0, 10, delta);
     }
+
+    // Compute supporting floor height (handles elevated floors/platforms in custom maps)
+    let groundY = 0;
+    if (this.activeMapConfig) {
+      const feetY = this.playerPos.y - 1.6;
+      for (const b of this.customSolidBoxes) {
+        if (
+          this.playerPos.x >= b.minX - 0.2 &&
+          this.playerPos.x <= b.maxX + 0.2 &&
+          this.playerPos.z >= b.minZ - 0.2 &&
+          this.playerPos.z <= b.maxZ + 0.2 &&
+          b.maxY <= feetY + 0.55 &&
+          b.maxY > groundY
+        ) {
+          groundY = b.maxY;
+        }
+      }
+      if (this.isGrounded && this.playerPos.y < groundY + 1.6) {
+        this.playerPos.y = groundY + 1.6;
+      } else if (this.isGrounded && this.playerPos.y > groundY + 1.6 + 0.05) {
+        this.isGrounded = false;
+      }
+    }
+    const minEyeY = groundY + 1.6;
 
     // Jump Physics
     if (this.keys['Space'] && this.isGrounded) {
@@ -2234,14 +2884,22 @@ export class GameEngine {
       this.playerVel.y -= 18 * delta;
       this.playerPos.y += this.playerVel.y * delta;
 
-      if (this.playerPos.y <= 1.6) {
-        this.playerPos.y = 1.6;
+      if (this.playerPos.y <= minEyeY) {
+        this.playerPos.y = minEyeY;
         this.playerVel.y = 0;
         this.isGrounded = true;
       }
     }
 
     this.camera.position.copy(this.playerPos);
+
+    // Update Tactical Flashlight target position forward along final camera direction
+    if (this.playerFlashlight) {
+      const camDir = new THREE.Vector3();
+      this.camera.getWorldDirection(camDir);
+      this.playerFlashlight.target.position.copy(this.playerPos).addScaledVector(camDir, 14);
+      this.playerFlashlight.target.updateMatrixWorld();
+    }
 
     // Sync 3D Player Body Viewmodel position & yaw heading directly on floor under camera
     // When looking down (pitch < 0), offset body slightly back along look direction so chest vest never clips camera
@@ -2470,7 +3128,7 @@ export class GameEngine {
 
         if (distToPlayer > 1.3) {
           zPos.addScaledVector(dir, z.speed * delta);
-          this.resolveMapCollisions(zPos, 0.45);
+          this.resolveMapCollisions(zPos, 0.45, zPos.y, 1.8);
           z.state = 'chasing_player';
 
           z.walkCycle += delta * z.speed * 5;
@@ -2573,7 +3231,18 @@ export class GameEngine {
     // Reset player
     this.playerHp = 100;
     this.maxHp = 100;
-    this.playerPos.set(0, 1.6, 0);
+    if (this.activeMapConfig) {
+      this.playerPos.copy(this.customSpawnPos);
+      this.yaw = this.customSpawnYaw;
+      this.pitch = 0;
+    } else {
+      this.playerPos.set(0, 1.6, 0);
+      this.yaw = 0;
+      this.pitch = 0;
+    }
+    this.playerVel.set(0, 0, 0);
+    this.isGrounded = true;
+    this.camera.position.copy(this.playerPos);
     this.perks = { juggernog: false, speedCola: false, doubleTap: false };
 
     // Reset Inventory to Pistol

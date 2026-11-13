@@ -24,7 +24,12 @@ import {
   Save,
   Check,
   Share2,
-  Download
+  Download,
+  Crosshair,
+  Package,
+  Sparkles,
+  ShieldAlert,
+  CircleDot
 } from 'lucide-react';
 
 interface MapMakerViewProps {
@@ -53,6 +58,7 @@ export const MapMakerView: React.FC<MapMakerViewProps> = ({ onPlayMap, onClose }
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [saveToast, setSaveToast] = useState(false);
   const [transformMode, setTransformMode] = useState<'translate' | 'rotate' | 'scale'>('translate');
+  const [isDarknessPreview, setIsDarknessPreview] = useState(false);
 
   // Track Export & Import (PolyTrack-style single copyable Base64 string)
   const [showExportModal, setShowExportModal] = useState(false);
@@ -225,6 +231,12 @@ export const MapMakerView: React.FC<MapMakerViewProps> = ({ onPlayMap, onClose }
     }
   };
 
+  const handleToggleDarknessPreview = () => {
+    const next = !isDarknessPreview;
+    setIsDarknessPreview(next);
+    editorEngineRef.current?.setDarknessPreview(next);
+  };
+
   const selectedObject = mapConfig.objects.find((o) => o.id === selectedId) || null;
 
   const handleUpdateSelected = (updatedFields: Partial<MapObject>) => {
@@ -283,18 +295,19 @@ export const MapMakerView: React.FC<MapMakerViewProps> = ({ onPlayMap, onClose }
     }
   };
 
-  const handleSaveMap = () => {
+  const handleSaveMap = (): CustomMapConfig => {
+    const latestConfig = editorEngineRef.current ? JSON.parse(JSON.stringify(editorEngineRef.current.mapConfig)) : mapConfig;
     try {
-      localStorage.setItem('custom_zombies_map', JSON.stringify(mapConfig));
+      localStorage.setItem('custom_zombies_map', JSON.stringify(latestConfig));
 
       const existingList = localStorage.getItem('custom_zombies_maps_list');
       let mapsList: CustomMapConfig[] = existingList ? JSON.parse(existingList) : [];
 
-      const idx = mapsList.findIndex((m) => m.id === mapConfig.id);
+      const idx = mapsList.findIndex((m) => m.id === latestConfig.id);
       if (idx !== -1) {
-        mapsList[idx] = mapConfig;
+        mapsList[idx] = latestConfig;
       } else {
-        mapsList.push(mapConfig);
+        mapsList.push(latestConfig);
       }
 
       localStorage.setItem('custom_zombies_maps_list', JSON.stringify(mapsList));
@@ -303,6 +316,7 @@ export const MapMakerView: React.FC<MapMakerViewProps> = ({ onPlayMap, onClose }
     } catch (e) {
       console.error('Failed to save custom map:', e);
     }
+    return latestConfig;
   };
 
   const handleCreateNewMap = () => {
@@ -347,28 +361,76 @@ export const MapMakerView: React.FC<MapMakerViewProps> = ({ onPlayMap, onClose }
       color = '#ffaa22';
       scale = { x: 1, y: 1, z: 1 };
     } else if (type === 'perk_juggernog') {
-      name = 'Juggernog Machine';
+      name = 'Titan Tonic Machine';
       color = '#dd1111';
       scale = { x: 1, y: 1, z: 1 };
     } else if (type === 'perk_speedcola') {
-      name = 'Speed Cola Machine';
+      name = 'Blitz Brew Machine';
       color = '#11dd44';
       scale = { x: 1, y: 1, z: 1 };
     } else if (type === 'perk_doubletap') {
-      name = 'Double Tap Machine';
+      name = 'Fury Fizz Machine';
       color = '#eedd11';
       scale = { x: 1, y: 1, z: 1 };
     } else if (type === 'pack_a_punch') {
-      name = 'Pack-a-Punch Station';
+      name = 'Hyper-Forge Station';
       color = '#00ffff';
       scale = { x: 1, y: 1, z: 1 };
     } else if (type === 'mystery_box') {
-      name = 'Mystery Box Chest';
+      name = 'Armory Chest';
       color = '#ffaa22';
       scale = { x: 1, y: 1, z: 1 };
     } else if (type === 'window_barrier') {
       name = `Window Barrier ${count}`;
       color = '#5c3a1e';
+      scale = { x: 1, y: 1, z: 1 };
+    } else if (type === 'wall_buy_smg') {
+      name = `MP40 Wall Buy ${count}`;
+      color = '#38bdf8';
+      scale = { x: 1, y: 1, z: 1 };
+    } else if (type === 'wall_buy_ar') {
+      name = `VX-44 Wall Buy ${count}`;
+      color = '#ffaa22';
+      scale = { x: 1, y: 1, z: 1 };
+    } else if (type === 'wall_buy_shotgun') {
+      name = `SG-26 Wall Buy ${count}`;
+      color = '#ef4444';
+      scale = { x: 1, y: 1, z: 1 };
+    } else if (type === 'wall_buy_sniper') {
+      name = `SR-50 Sniper Wall Buy ${count}`;
+      color = '#38bdf8';
+      scale = { x: 1, y: 1, z: 1 };
+    } else if (type === 'wall_buy_lmg') {
+      name = `MG42 LMG Wall Buy ${count}`;
+      color = '#f59e0b';
+      scale = { x: 1, y: 1, z: 1 };
+    } else if (type === 'wall_buy_raygun') {
+      name = `Plasma Blaster Wall Buy ${count}`;
+      color = '#22ff66';
+      scale = { x: 1, y: 1, z: 1 };
+    } else if (type === 'ammo_crate') {
+      name = `Ammo Resupply Crate ${count}`;
+      color = '#eab308';
+      scale = { x: 1, y: 1, z: 1 };
+    } else if (type === 'explosive_barrel') {
+      name = `Explosive Barrel ${count}`;
+      color = '#dc2626';
+      scale = { x: 1, y: 1, z: 1 };
+    } else if (type === 'teleporter') {
+      name = `Warp Teleporter ${count}`;
+      color = '#00f0ff';
+      scale = { x: 1, y: 1, z: 1 };
+    } else if (type === 'crate_cover') {
+      name = `Supply Crate ${count}`;
+      color = '#8b5a2b';
+      scale = { x: 1, y: 1, z: 1 };
+    } else if (type === 'sandbag_wall') {
+      name = `Sandbag Barricade ${count}`;
+      color = '#a89060';
+      scale = { x: 1, y: 1, z: 1 };
+    } else if (type === 'pillar') {
+      name = `Concrete Pillar ${count}`;
+      color = '#475569';
       scale = { x: 1, y: 1, z: 1 };
     } else if (type === 'zombie_spawn') {
       name = `Zombie Spawn Marker ${count}`;
@@ -380,11 +442,13 @@ export const MapMakerView: React.FC<MapMakerViewProps> = ({ onPlayMap, onClose }
       scale = { x: 1, y: 1, z: 1 };
     }
 
+    const defaultY = type === 'block' ? 2 : type === 'light' ? 3.0 : type.startsWith('wall_buy_') ? 1.8 : 0;
+
     const newObj: MapObject = {
       id: 'obj_' + Math.random().toString(36).substring(2, 9),
       name,
       type,
-      position: { x: 0, y: type === 'block' ? 2 : 0, z: 0 },
+      position: { x: 0, y: defaultY, z: 0 },
       rotation: { x: 0, y: 0, z: 0 },
       scale,
       color,
@@ -398,6 +462,8 @@ export const MapMakerView: React.FC<MapMakerViewProps> = ({ onPlayMap, onClose }
 
   const handleResetDefault = () => {
     const defaultCfg = getDefaultMapConfig();
+    defaultCfg.id = `custom_map_${Date.now()}`;
+    defaultCfg.name = 'Custom Facility Draft';
     setMapConfig(defaultCfg);
     localStorage.setItem('custom_zombies_map', JSON.stringify(defaultCfg));
     if (editorEngineRef.current) {
@@ -457,6 +523,20 @@ export const MapMakerView: React.FC<MapMakerViewProps> = ({ onPlayMap, onClose }
             <Maximize2 className="w-3.5 h-3.5" /> RESIZE
           </button>
         </div>
+
+        {/* Darkness / In-Game Lighting Preview Toggle */}
+        <button
+          onClick={handleToggleDarknessPreview}
+          className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all flex items-center gap-1.5 border cursor-pointer shrink-0 ${
+            isDarknessPreview
+              ? 'bg-amber-500/20 text-amber-300 border-amber-500/60 shadow-[0_0_10px_rgba(245,158,11,0.3)]'
+              : 'bg-slate-950 text-slate-300 border-slate-800 hover:bg-slate-800'
+          }`}
+          title="Preview exact in-game custom map darkness and Light Block pools"
+        >
+          <Sun className="w-3.5 h-3.5" />
+          {isDarknessPreview ? 'DARKNESS PREVIEW: ON' : 'DARKNESS PREVIEW'}
+        </button>
 
         {/* Map Name Input in Top Header */}
         <div className="flex-1 max-w-xs flex items-center bg-slate-950 border border-slate-800 rounded-lg px-3 py-1">
@@ -522,8 +602,8 @@ export const MapMakerView: React.FC<MapMakerViewProps> = ({ onPlayMap, onClose }
 
           <button
             onClick={() => {
-              handleSaveMap();
-              onPlayMap(mapConfig);
+              const latestConfig = handleSaveMap();
+              onPlayMap(latestConfig);
             }}
             className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-3.5 py-2 rounded-lg transition-all shadow-[0_0_15px_rgba(16,185,129,0.4)] cursor-pointer text-xs tracking-wider"
           >
@@ -533,7 +613,7 @@ export const MapMakerView: React.FC<MapMakerViewProps> = ({ onPlayMap, onClose }
           <button
             onClick={handleResetDefault}
             className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-2.5 py-2 rounded-lg border border-slate-700 text-xs transition-all cursor-pointer"
-            title="Reset Map to Der Abandoned Default Facility"
+            title="Reset Map to Sector Zero Default Facility"
           >
             <RotateCcw className="w-3.5 h-3.5" /> RESET
           </button>
@@ -552,83 +632,174 @@ export const MapMakerView: React.FC<MapMakerViewProps> = ({ onPlayMap, onClose }
         {/* LEFT PANEL: Scene Hierarchy & Add Objects */}
         <aside className="w-72 bg-slate-900/95 border-r border-slate-800 flex flex-col shrink-0 z-10 backdrop-blur-md">
           {/* Add Bar */}
-          <div className="p-4 border-b border-slate-800 space-y-3">
+          <div className="p-3.5 border-b border-slate-800 space-y-2.5 max-h-[54%] overflow-y-auto shrink-0">
             <div className="text-xs font-bold tracking-widest text-slate-400 uppercase flex items-center justify-between">
               <span>ADD TO WORLD</span>
               <Plus className="w-4 h-4 text-emerald-400" />
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">ARCHITECTURE & PROPS</div>
+            <div className="grid grid-cols-2 gap-1.5">
               <button
                 onClick={() => handleAddObject('block')}
-                className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 p-2.5 rounded-lg text-xs font-bold text-cyan-300 transition-all cursor-pointer"
+                className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 p-2 rounded-lg text-[11px] font-bold text-cyan-300 transition-all cursor-pointer"
                 title="Add a stretchable 3D wall or floor block"
               >
-                <Box className="w-4 h-4 text-cyan-400" /> + BLOCK
+                <Box className="w-3.5 h-3.5 text-cyan-400 shrink-0" /> + BLOCK
               </button>
 
               <button
                 onClick={() => handleAddObject('light')}
-                className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 p-2.5 rounded-lg text-xs font-bold text-amber-300 transition-all cursor-pointer"
+                className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 p-2 rounded-lg text-[11px] font-bold text-amber-300 transition-all cursor-pointer"
                 title="Add custom light block"
               >
-                <Sun className="w-4 h-4 text-amber-400" /> + LIGHT
+                <Sun className="w-3.5 h-3.5 text-amber-400 shrink-0" /> + LIGHT
+              </button>
+
+              <button
+                onClick={() => handleAddObject('crate_cover')}
+                className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 p-2 rounded-lg text-[11px] font-bold text-amber-200 transition-all cursor-pointer"
+                title="Add solid wooden military crate cover"
+              >
+                <Package className="w-3.5 h-3.5 text-amber-400 shrink-0" /> + CRATE
+              </button>
+
+              <button
+                onClick={() => handleAddObject('sandbag_wall')}
+                className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 p-2 rounded-lg text-[11px] font-bold text-stone-300 transition-all cursor-pointer"
+                title="Add low sandbag barricade cover"
+              >
+                <ShieldAlert className="w-3.5 h-3.5 text-amber-300 shrink-0" /> + SANDBAGS
+              </button>
+
+              <button
+                onClick={() => handleAddObject('pillar')}
+                className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 p-2 rounded-lg text-[11px] font-bold text-slate-300 transition-all cursor-pointer"
+                title="Add concrete structural pillar"
+              >
+                <Layers className="w-3.5 h-3.5 text-slate-400 shrink-0" /> + PILLAR
+              </button>
+
+              <button
+                onClick={() => handleAddObject('explosive_barrel')}
+                className="flex items-center gap-1.5 bg-red-950/70 hover:bg-red-900 border border-red-700/60 p-2 rounded-lg text-[11px] font-bold text-red-300 transition-all cursor-pointer"
+                title="Shootable red barrel that explodes and damages nearby zombies"
+              >
+                <Flame className="w-3.5 h-3.5 text-orange-400 shrink-0" /> + BARREL
               </button>
             </div>
 
-            <div className="text-[11px] font-semibold text-slate-400 mt-2 mb-1 uppercase tracking-wider">ENTITIES & PERKS</div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="text-[10px] font-bold text-sky-400 pt-1 uppercase tracking-wider">WALL GUNS (BUYABLE)</div>
+            <div className="grid grid-cols-2 gap-1.5">
+              <button
+                onClick={() => handleAddObject('wall_buy_smg')}
+                className="flex items-center gap-1.5 bg-sky-950/60 hover:bg-sky-900/80 border border-sky-700/50 p-2 rounded-lg text-[11px] font-bold text-sky-300 transition-all cursor-pointer"
+                title="MP40 SMG Wall Buy (1,000 PTS)"
+              >
+                <Crosshair className="w-3.5 h-3.5 shrink-0" /> MP40 SMG
+              </button>
+              <button
+                onClick={() => handleAddObject('wall_buy_ar')}
+                className="flex items-center gap-1.5 bg-sky-950/60 hover:bg-sky-900/80 border border-sky-700/50 p-2 rounded-lg text-[11px] font-bold text-amber-300 transition-all cursor-pointer"
+                title="VX-44 Assault Rifle Wall Buy (1,500 PTS)"
+              >
+                <Crosshair className="w-3.5 h-3.5 shrink-0" /> VX-44 AR
+              </button>
+              <button
+                onClick={() => handleAddObject('wall_buy_shotgun')}
+                className="flex items-center gap-1.5 bg-sky-950/60 hover:bg-sky-900/80 border border-sky-700/50 p-2 rounded-lg text-[11px] font-bold text-orange-300 transition-all cursor-pointer"
+                title="SG-26 Shotgun Wall Buy (1,200 PTS)"
+              >
+                <Crosshair className="w-3.5 h-3.5 shrink-0" /> SG-26 SHOTGUN
+              </button>
+              <button
+                onClick={() => handleAddObject('wall_buy_sniper')}
+                className="flex items-center gap-1.5 bg-sky-950/60 hover:bg-sky-900/80 border border-sky-700/50 p-2 rounded-lg text-[11px] font-bold text-cyan-300 transition-all cursor-pointer"
+                title="SR-50 Sniper Wall Buy (2,000 PTS)"
+              >
+                <Crosshair className="w-3.5 h-3.5 shrink-0" /> SR-50 SNIPER
+              </button>
+              <button
+                onClick={() => handleAddObject('wall_buy_lmg')}
+                className="flex items-center gap-1.5 bg-sky-950/60 hover:bg-sky-900/80 border border-sky-700/50 p-2 rounded-lg text-[11px] font-bold text-yellow-300 transition-all cursor-pointer"
+                title="MG42 Heavy LMG Wall Buy (2,500 PTS)"
+              >
+                <Crosshair className="w-3.5 h-3.5 shrink-0" /> MG42 LMG
+              </button>
+              <button
+                onClick={() => handleAddObject('wall_buy_raygun')}
+                className="flex items-center gap-1.5 bg-emerald-950/70 hover:bg-emerald-900/80 border border-emerald-600/60 p-2 rounded-lg text-[11px] font-bold text-emerald-300 transition-all cursor-pointer"
+                title="Plasma Blaster Wall Buy (4,000 PTS)"
+              >
+                <Sparkles className="w-3.5 h-3.5 shrink-0" /> PLASMA BLASTER
+              </button>
+            </div>
+
+            <div className="text-[10px] font-bold text-slate-400 pt-1 uppercase tracking-wider">POWER BREWS & STATIONS</div>
+            <div className="grid grid-cols-2 gap-1.5">
               <button
                 onClick={() => handleAddObject('perk_juggernog')}
-                className="flex items-center gap-1.5 bg-red-950/60 hover:bg-red-900/80 border border-red-800/50 p-2 rounded-lg text-xs font-bold text-red-300 transition-all cursor-pointer"
+                className="flex items-center gap-1.5 bg-red-950/60 hover:bg-red-900/80 border border-red-800/50 p-2 rounded-lg text-[11px] font-bold text-red-300 transition-all cursor-pointer"
               >
-                <Shield className="w-3.5 h-3.5" /> JUGGERNOG
+                <Shield className="w-3.5 h-3.5 shrink-0" /> TITAN TONIC
               </button>
               <button
                 onClick={() => handleAddObject('perk_speedcola')}
-                className="flex items-center gap-1.5 bg-emerald-950/60 hover:bg-emerald-900/80 border border-emerald-800/50 p-2 rounded-lg text-xs font-bold text-emerald-300 transition-all cursor-pointer"
+                className="flex items-center gap-1.5 bg-emerald-950/60 hover:bg-emerald-900/80 border border-emerald-800/50 p-2 rounded-lg text-[11px] font-bold text-emerald-300 transition-all cursor-pointer"
               >
-                <Zap className="w-3.5 h-3.5" /> SPEED COLA
+                <Zap className="w-3.5 h-3.5 shrink-0" /> BLITZ BREW
               </button>
               <button
                 onClick={() => handleAddObject('perk_doubletap')}
-                className="flex items-center gap-1.5 bg-amber-950/60 hover:bg-amber-900/80 border border-amber-800/50 p-2 rounded-lg text-xs font-bold text-amber-300 transition-all cursor-pointer"
+                className="flex items-center gap-1.5 bg-amber-950/60 hover:bg-amber-900/80 border border-amber-800/50 p-2 rounded-lg text-[11px] font-bold text-amber-300 transition-all cursor-pointer"
               >
-                <Target className="w-3.5 h-3.5" /> DOUBLE TAP
+                <Target className="w-3.5 h-3.5 shrink-0" /> FURY FIZZ
               </button>
               <button
                 onClick={() => handleAddObject('pack_a_punch')}
-                className="flex items-center gap-1.5 bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-800/50 p-2 rounded-lg text-xs font-bold text-cyan-300 transition-all cursor-pointer"
+                className="flex items-center gap-1.5 bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-800/50 p-2 rounded-lg text-[11px] font-bold text-cyan-300 transition-all cursor-pointer"
               >
-                <Flame className="w-3.5 h-3.5" /> PACK-PUNCH
+                <Flame className="w-3.5 h-3.5 shrink-0" /> HYPER-FORGE
               </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 pt-1">
               <button
                 onClick={() => handleAddObject('mystery_box')}
-                className="bg-amber-950/40 hover:bg-amber-900/60 border border-amber-700/40 p-2 rounded-lg text-xs font-bold text-amber-200 transition-all cursor-pointer text-center"
+                className="bg-amber-950/40 hover:bg-amber-900/60 border border-amber-700/40 p-2 rounded-lg text-[11px] font-bold text-amber-200 transition-all cursor-pointer text-center"
               >
-                + MYSTERY BOX
+                + ARMORY CHEST
+              </button>
+              <button
+                onClick={() => handleAddObject('ammo_crate')}
+                className="flex items-center justify-center gap-1 bg-yellow-950/50 hover:bg-yellow-900/70 border border-yellow-700/50 p-2 rounded-lg text-[11px] font-bold text-yellow-300 transition-all cursor-pointer"
+                title="Refill all weapons ammo for 750 PTS"
+              >
+                <Package className="w-3.5 h-3.5 shrink-0" /> AMMO CRATE
+              </button>
+              <button
+                onClick={() => handleAddObject('teleporter')}
+                className="flex items-center justify-center gap-1 bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-600/50 p-2 rounded-lg text-[11px] font-bold text-cyan-300 transition-all cursor-pointer"
+                title="Place 2+ pads to teleport between locations"
+              >
+                <CircleDot className="w-3.5 h-3.5 shrink-0" /> TELEPORTER
               </button>
               <button
                 onClick={() => handleAddObject('window_barrier')}
-                className="bg-slate-800 hover:bg-slate-700 border border-slate-700 p-2 rounded-lg text-xs font-bold text-slate-300 transition-all cursor-pointer text-center"
+                className="bg-slate-800 hover:bg-slate-700 border border-slate-700 p-2 rounded-lg text-[11px] font-bold text-slate-300 transition-all cursor-pointer text-center"
               >
                 + BARRIER
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 pt-1">
+            <div className="text-[10px] font-bold text-slate-400 pt-1 uppercase tracking-wider">SPAWNERS</div>
+            <div className="grid grid-cols-2 gap-1.5">
               <button
                 onClick={() => handleAddObject('zombie_spawn')}
-                className="bg-red-950/80 hover:bg-red-900 border border-red-700/60 p-2 rounded-lg text-xs font-bold text-red-300 transition-all cursor-pointer text-center"
+                className="bg-red-950/80 hover:bg-red-900 border border-red-700/60 p-2 rounded-lg text-[11px] font-bold text-red-300 transition-all cursor-pointer text-center"
               >
                 + ZOMBIE SPAWN
               </button>
               <button
                 onClick={() => handleAddObject('player_spawn')}
-                className="bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700/60 p-2 rounded-lg text-xs font-bold text-emerald-300 transition-all cursor-pointer text-center"
+                className="bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700/60 p-2 rounded-lg text-[11px] font-bold text-emerald-300 transition-all cursor-pointer text-center"
               >
                 + PLAYER SPAWN
               </button>
@@ -660,6 +831,11 @@ export const MapMakerView: React.FC<MapMakerViewProps> = ({ onPlayMap, onClose }
                     {obj.type === 'pack_a_punch' && <Flame className="w-3.5 h-3.5 text-cyan-400 shrink-0" />}
                     {obj.type === 'mystery_box' && <Box className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
                     {obj.type === 'window_barrier' && <Layers className="w-3.5 h-3.5 text-amber-600 shrink-0" />}
+                    {obj.type.startsWith('wall_buy_') && <Crosshair className="w-3.5 h-3.5 text-sky-400 shrink-0" />}
+                    {(obj.type === 'ammo_crate' || obj.type === 'crate_cover') && <Package className="w-3.5 h-3.5 text-amber-300 shrink-0" />}
+                    {obj.type === 'explosive_barrel' && <Flame className="w-3.5 h-3.5 text-orange-500 shrink-0" />}
+                    {obj.type === 'teleporter' && <CircleDot className="w-3.5 h-3.5 text-cyan-400 shrink-0" />}
+                    {(obj.type === 'sandbag_wall' || obj.type === 'pillar') && <Layers className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
                     {obj.type === 'player_spawn' && <Eye className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
                     {obj.type === 'zombie_spawn' && <Flame className="w-3.5 h-3.5 text-red-500 shrink-0" />}
                     
@@ -944,7 +1120,12 @@ export const MapMakerView: React.FC<MapMakerViewProps> = ({ onPlayMap, onClose }
               </div>
 
               {/* Color & Material Finish */}
-              {(selectedObject.type === 'block' || selectedObject.type === 'light') && (
+              {(selectedObject.type === 'block' ||
+                selectedObject.type === 'light' ||
+                selectedObject.type === 'explosive_barrel' ||
+                selectedObject.type === 'crate_cover' ||
+                selectedObject.type === 'sandbag_wall' ||
+                selectedObject.type === 'pillar') && (
                 <div className="space-y-3">
                   <label className="block text-[11px] font-bold text-slate-400 uppercase">COLOR & FINISH</label>
                   <div className="flex items-center gap-3">
@@ -990,37 +1171,99 @@ export const MapMakerView: React.FC<MapMakerViewProps> = ({ onPlayMap, onClose }
 
               {/* Light Specific Settings */}
               {selectedObject.type === 'light' && (
-                <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-3">
-                  <div className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">LIGHTING PARAMETERS</div>
-                  <div>
-                    <label className="flex justify-between text-[11px] font-bold text-slate-300 mb-1">
-                      <span>INTENSITY</span>
-                      <span className="text-amber-400 font-mono">{selectedObject.intensity.toFixed(1)}</span>
-                    </label>
+                <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-3.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">LIGHT BLOCK LEVEL</span>
+                    <span className="text-[10px] font-mono text-slate-400">
+                      {selectedObject.intensity <= 0 ? 'OFF (DARK)' : selectedObject.intensity < 1.5 ? 'DIM' : selectedObject.intensity < 5 ? 'MEDIUM' : 'BRIGHT'}
+                    </span>
+                  </div>
+
+                  {/* Light Level Slider + Input */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="text-[11px] font-bold text-slate-300">LIGHT LEVEL (INTENSITY)</label>
+                      <input
+                        type="number"
+                        step="0.2"
+                        min="0"
+                        max="15"
+                        value={selectedObject.intensity}
+                        onChange={(e) => {
+                          const parsed = parseFloat(e.target.value);
+                          handleUpdateSelected({ intensity: Number.isFinite(parsed) ? Math.max(0, parsed) : 0 });
+                        }}
+                        className="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-xs text-amber-300 font-mono text-right outline-none focus:border-amber-500"
+                      />
+                    </div>
                     <input
-                      type="number"
-                      step="0.5"
-                      min="0.1"
-                      value={selectedObject.intensity}
-                      onChange={(e) => handleUpdateSelected({ intensity: parseFloat(e.target.value) || 1 })}
-                      className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-amber-300 font-mono outline-none"
+                      type="range"
+                      min="0"
+                      max="10"
+                      step="0.1"
+                      value={Math.min(10, Math.max(0, selectedObject.intensity))}
+                      onChange={(e) => {
+                        const parsed = parseFloat(e.target.value);
+                        handleUpdateSelected({ intensity: Number.isFinite(parsed) ? parsed : 0 });
+                      }}
+                      className="w-full accent-amber-500 cursor-pointer h-2 bg-slate-800 rounded-lg"
+                    />
+                    <div className="grid grid-cols-4 gap-1 pt-0.5">
+                      {[
+                        { label: 'OFF', val: 0 },
+                        { label: 'DIM', val: 0.8 },
+                        { label: 'MED', val: 3.0 },
+                        { label: 'MAX', val: 8.0 },
+                      ].map((preset) => (
+                        <button
+                          key={preset.label}
+                          onClick={() => handleUpdateSelected({ intensity: preset.val })}
+                          className={`py-1 rounded text-[10px] font-bold border cursor-pointer transition-colors ${
+                            Math.abs(selectedObject.intensity - preset.val) < 0.15
+                              ? 'bg-amber-600/30 border-amber-500 text-amber-300'
+                              : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Light Distance Range Slider + Input */}
+                  <div className="space-y-1.5 pt-1 border-t border-slate-800/80">
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="text-[11px] font-bold text-slate-300">LIGHT RADIUS (METERS)</label>
+                      <input
+                        type="number"
+                        step="1"
+                        min="1"
+                        max="60"
+                        value={selectedObject.distance}
+                        onChange={(e) => {
+                          const parsed = parseInt(e.target.value, 10);
+                          handleUpdateSelected({ distance: Number.isFinite(parsed) ? Math.max(1, parsed) : 10 });
+                        }}
+                        className="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-xs text-amber-300 font-mono text-right outline-none focus:border-amber-500"
+                      />
+                    </div>
+                    <input
+                      type="range"
+                      min="2"
+                      max="50"
+                      step="1"
+                      value={Math.min(50, Math.max(2, selectedObject.distance))}
+                      onChange={(e) => {
+                        const parsed = parseInt(e.target.value, 10);
+                        handleUpdateSelected({ distance: Number.isFinite(parsed) ? parsed : 20 });
+                      }}
+                      className="w-full accent-amber-500 cursor-pointer h-2 bg-slate-800 rounded-lg"
                     />
                   </div>
 
-                  <div>
-                    <label className="flex justify-between text-[11px] font-bold text-slate-300 mb-1">
-                      <span>DISTANCE RANGE</span>
-                      <span className="text-amber-400 font-mono">{selectedObject.distance}m</span>
-                    </label>
-                    <input
-                      type="number"
-                      step="1"
-                      min="1"
-                      value={selectedObject.distance}
-                      onChange={(e) => handleUpdateSelected({ distance: parseInt(e.target.value, 10) || 10 })}
-                      className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-amber-300 font-mono outline-none"
-                    />
-                  </div>
+                  <p className="text-[10px] text-slate-400 leading-snug pt-1 border-t border-slate-800/80">
+                    Custom maps are dark by default unless lit by Light Blocks or the player&apos;s [T] Tactical Flashlight.
+                  </p>
                 </div>
               )}
             </div>

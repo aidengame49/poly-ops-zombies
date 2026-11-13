@@ -5,7 +5,7 @@ export interface WeaponStats {
   name: string;
   papName: string;
   isPap: boolean;
-  type: 'pistol' | 'smg' | 'ar' | 'shotgun' | 'raygun';
+  type: 'pistol' | 'smg' | 'ar' | 'shotgun' | 'sniper' | 'lmg' | 'raygun';
   damage: number;
   fireRate: number; // Seconds between shots
   clipSize: number;
@@ -102,15 +102,24 @@ export interface GameStats {
 export type MapObjectType = 
   | 'block'            // Custom stretchable wall / floor block
   | 'light'            // Light block source
-  | 'perk_juggernog'   // Juggernog machine
-  | 'perk_speedcola'   // Speed Cola machine
-  | 'perk_doubletap'   // Double Tap machine
-  | 'pack_a_punch'     // Pack-a-Punch station
-  | 'mystery_box'      // Mystery Box chest
+  | 'perk_juggernog'   // Titan Tonic machine
+  | 'perk_speedcola'   // Blitz Brew machine
+  | 'perk_doubletap'   // Fury Fizz machine
+  | 'pack_a_punch'     // Hyper-Forge station
+  | 'mystery_box'      // Armory Chest
   | 'window_barrier'   // Window barrier
   | 'wall_buy_smg'     // MP40 Wall Buy
-  | 'wall_buy_ar'      // KN-44 Wall Buy
-  | 'wall_buy_shotgun' // KRM-262 Wall Buy
+  | 'wall_buy_ar'      // VX-44 Wall Buy
+  | 'wall_buy_shotgun' // SG-26 Wall Buy
+  | 'wall_buy_sniper'  // SR-50 Sniper Wall Buy
+  | 'wall_buy_lmg'     // MG42 Heavy LMG Wall Buy
+  | 'wall_buy_raygun'  // Plasma Blaster Wall Buy
+  | 'ammo_crate'       // Full Ammo Resupply Crate
+  | 'explosive_barrel' // Shootable Explosive Barrel
+  | 'teleporter'       // Aether Teleporter Pad
+  | 'crate_cover'      // Tactical Supply Crate Cover
+  | 'sandbag_wall'     // Low Sandbag Barricade
+  | 'pillar'           // Concrete Structural Pillar
   | 'player_spawn'     // Player start position
   | 'zombie_spawn';    // Zombie spawn point marker
 
@@ -140,7 +149,7 @@ export interface CustomMapConfig {
 export function getDefaultMapConfig(): CustomMapConfig {
   return {
     id: 'default_der_abandoned',
-    name: 'Der Abandoned (Default Facility)',
+    name: 'Sector Zero (Default Facility)',
     floorSize: { width: 24, depth: 24 },
     ambientColor: '#3d4b64',
     objects: [
@@ -161,11 +170,11 @@ export function getDefaultMapConfig(): CustomMapConfig {
       { id: 'light_sconce_s', name: 'South Wall Light', type: 'light', position: { x: 0, y: 3.4, z: 11.2 }, rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 }, color: '#ff9922', texturePattern: 'plain', intensity: 2.8, distance: 16 },
 
       // Entities
-      { id: 'jugg_1', name: 'Juggernog Machine', type: 'perk_juggernog', position: { x: 6, y: 0, z: 11.1 }, rotation: { x: 0, y: Math.PI, z: 0 }, scale: { x: 1, y: 1, z: 1 }, color: '#dd1111', texturePattern: 'plain', intensity: 1, distance: 10 },
-      { id: 'speed_1', name: 'Speed Cola Machine', type: 'perk_speedcola', position: { x: 6, y: 0, z: -11.1 }, rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 }, color: '#11dd44', texturePattern: 'plain', intensity: 1, distance: 10 },
-      { id: 'dtap_1', name: 'Double Tap Machine', type: 'perk_doubletap', position: { x: -6, y: 0, z: -11.1 }, rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 }, color: '#eedd11', texturePattern: 'plain', intensity: 1, distance: 10 },
-      { id: 'pap_1', name: 'Pack-a-Punch Station', type: 'pack_a_punch', position: { x: -6, y: 0, z: 11.2 }, rotation: { x: 0, y: Math.PI, z: 0 }, scale: { x: 1, y: 1, z: 1 }, color: '#00ffff', texturePattern: 'plain', intensity: 1, distance: 10 },
-      { id: 'box_1', name: 'Mystery Box Chest', type: 'mystery_box', position: { x: 11.2, y: 0, z: -5 }, rotation: { x: 0, y: -Math.PI / 2, z: 0 }, scale: { x: 1, y: 1, z: 1 }, color: '#ffaa22', texturePattern: 'plain', intensity: 1, distance: 10 },
+      { id: 'jugg_1', name: 'Titan Tonic Machine', type: 'perk_juggernog', position: { x: 6, y: 0, z: 11.1 }, rotation: { x: 0, y: Math.PI, z: 0 }, scale: { x: 1, y: 1, z: 1 }, color: '#dd1111', texturePattern: 'plain', intensity: 1, distance: 10 },
+      { id: 'speed_1', name: 'Blitz Brew Machine', type: 'perk_speedcola', position: { x: 6, y: 0, z: -11.1 }, rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 }, color: '#11dd44', texturePattern: 'plain', intensity: 1, distance: 10 },
+      { id: 'dtap_1', name: 'Fury Fizz Machine', type: 'perk_doubletap', position: { x: -6, y: 0, z: -11.1 }, rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 }, color: '#eedd11', texturePattern: 'plain', intensity: 1, distance: 10 },
+      { id: 'pap_1', name: 'Hyper-Forge Station', type: 'pack_a_punch', position: { x: -6, y: 0, z: 11.2 }, rotation: { x: 0, y: Math.PI, z: 0 }, scale: { x: 1, y: 1, z: 1 }, color: '#00ffff', texturePattern: 'plain', intensity: 1, distance: 10 },
+      { id: 'box_1', name: 'Armory Chest', type: 'mystery_box', position: { x: 11.2, y: 0, z: -5 }, rotation: { x: 0, y: -Math.PI / 2, z: 0 }, scale: { x: 1, y: 1, z: 1 }, color: '#ffaa22', texturePattern: 'plain', intensity: 1, distance: 10 },
       
       // Barriers
       { id: 'barrier_south', name: 'Window Barrier 1', type: 'window_barrier', position: { x: 0, y: 1.4, z: 11.7 }, rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 }, color: '#5c3a1e', texturePattern: 'wood', intensity: 1, distance: 10 },
@@ -175,8 +184,8 @@ export function getDefaultMapConfig(): CustomMapConfig {
 
       // Wall buys
       { id: 'wallbuy_smg', name: 'MP40 Wall Buy', type: 'wall_buy_smg', position: { x: -11.6, y: 2.0, z: -5.0 }, rotation: { x: 0, y: Math.PI / 2, z: 0 }, scale: { x: 1, y: 1, z: 1 }, color: '#38bdf8', texturePattern: 'plain', intensity: 1, distance: 10 },
-      { id: 'wallbuy_ar', name: 'KN-44 Wall Buy', type: 'wall_buy_ar', position: { x: 11.6, y: 2.0, z: 5.0 }, rotation: { x: 0, y: -Math.PI / 2, z: 0 }, scale: { x: 1, y: 1, z: 1 }, color: '#38bdf8', texturePattern: 'plain', intensity: 1, distance: 10 },
-      { id: 'wallbuy_shotgun', name: 'KRM-262 Wall Buy', type: 'wall_buy_shotgun', position: { x: -11.6, y: 2.0, z: 5.0 }, rotation: { x: 0, y: Math.PI / 2, z: 0 }, scale: { x: 1, y: 1, z: 1 }, color: '#38bdf8', texturePattern: 'plain', intensity: 1, distance: 10 },
+      { id: 'wallbuy_ar', name: 'VX-44 Wall Buy', type: 'wall_buy_ar', position: { x: 11.6, y: 2.0, z: 5.0 }, rotation: { x: 0, y: -Math.PI / 2, z: 0 }, scale: { x: 1, y: 1, z: 1 }, color: '#38bdf8', texturePattern: 'plain', intensity: 1, distance: 10 },
+      { id: 'wallbuy_shotgun', name: 'SG-26 Wall Buy', type: 'wall_buy_shotgun', position: { x: -11.6, y: 2.0, z: 5.0 }, rotation: { x: 0, y: Math.PI / 2, z: 0 }, scale: { x: 1, y: 1, z: 1 }, color: '#38bdf8', texturePattern: 'plain', intensity: 1, distance: 10 },
 
       // Player Spawn
       { id: 'spawn_player', name: 'Player Spawn Marker', type: 'player_spawn', position: { x: 0, y: 1.6, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 }, color: '#10b981', texturePattern: 'plain', intensity: 1, distance: 10 },

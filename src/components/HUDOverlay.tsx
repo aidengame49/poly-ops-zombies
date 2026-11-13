@@ -6,7 +6,7 @@ import { HowToPlayModal } from './HowToPlayModal';
 import { MapMakerView } from './MapMakerView';
 import { MapSelectModal } from './MapSelectModal';
 import { CustomMapConfig, getDefaultMapConfig } from '../types/game';
-import { Volume2, VolumeX, Download, Play, RotateCcw, Shield, Zap, Target, Sliders, HelpCircle, Flame, Home, Crosshair, Box } from 'lucide-react';
+import { Volume2, VolumeX, Download, Play, RotateCcw, Shield, Zap, Target, Sliders, HelpCircle, Flame, Home, Crosshair, Box, Flashlight } from 'lucide-react';
 import { soundEngine } from '../utils/soundEngine';
 
 interface HUDOverlayProps {
@@ -39,6 +39,7 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
         roundBreakTimer: Math.ceil(engine.stats.roundBreakTimer),
         isPointerLocked: engine.isPointerLocked,
         isAiming: engine.isAiming,
+        isFlashlightOn: engine.isFlashlightOn,
         playerHp: Math.round(engine.playerHp),
         maxHp: engine.maxHp,
         prompt: engine.currentPrompt,
@@ -104,6 +105,7 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
 
   const handleStartCustomMap = (config: CustomMapConfig) => {
     setActiveModal('none');
+    setSelectedMapConfig(config);
     setIsTestingCustomMap(true);
     engine?.unloadMap();
     engine?.loadMap(config);
@@ -128,7 +130,7 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'black_ops_zombies_3d.html';
+    a.download = 'poly_ops_zombies.html';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -233,6 +235,16 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
                 style={{ width: `${hpPercent}%` }}
               />
             </div>
+
+            <div className="mt-1 pt-1.5 border-t border-slate-800/80 flex items-center justify-between text-[11px] font-bold tracking-wider">
+              <span className={`flex items-center gap-1.5 ${gameState.isFlashlightOn ? 'text-cyan-300' : 'text-slate-500'}`}>
+                <Flashlight className="w-3.5 h-3.5" />
+                FLASHLIGHT: {gameState.isFlashlightOn ? 'ON' : 'OFF'}
+              </span>
+              <span className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-300 font-mono text-[10px]">
+                [T]
+              </span>
+            </div>
           </div>
 
           {/* Top Right - Score / Points */}
@@ -283,7 +295,7 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
             {gameState.perks.juggernog && (
               <div
                 className="w-12 h-12 rounded-full bg-red-600 border-2 border-white flex items-center justify-center shadow-[0_0_12px_rgba(220,38,38,0.8)]"
-                title="Juggernog (250 HP)"
+                title="Titan Tonic (250 HP)"
               >
                 <Shield className="w-6 h-6 text-white" />
               </div>
@@ -291,7 +303,7 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
             {gameState.perks.speedCola && (
               <div
                 className="w-12 h-12 rounded-full bg-emerald-600 border-2 border-white flex items-center justify-center shadow-[0_0_12px_rgba(16,185,129,0.8)]"
-                title="Speed Cola (50% Reload Time)"
+                title="Blitz Brew (50% Reload Time)"
               >
                 <Zap className="w-6 h-6 text-white" />
               </div>
@@ -299,7 +311,7 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
             {gameState.perks.doubleTap && (
               <div
                 className="w-12 h-12 rounded-full bg-amber-500 border-2 border-white flex items-center justify-center shadow-[0_0_12px_rgba(245,158,11,0.8)]"
-                title="Double Tap (+50% Fire Rate & Damage)"
+                title="Fury Fizz (+50% Fire Rate & Damage)"
               >
                 <Target className="w-6 h-6 text-white" />
               </div>
@@ -319,7 +331,7 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
                 </div>
                 {gameState.weapon.isPap && (
                   <span className="text-[10px] bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 px-1.5 py-0.5 rounded font-bold uppercase">
-                    Pack-a-Punched
+                    Hyper-Forged
                   </span>
                 )}
               </div>
@@ -368,7 +380,7 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
             <div className="w-full md:w-80 flex flex-col gap-3.5 shrink-0 justify-center">
               <div className="mb-2">
                 <h1 className="text-4xl sm:text-5xl font-extrabold text-red-600 tracking-wider drop-shadow-[0_0_20px_rgba(220,38,38,0.8)] leading-none">
-                  BLACK OPS ZOMBIES
+                  POLY-OPS ZOMBIES
                 </h1>
                 <p className="text-slate-400 text-sm font-semibold tracking-widest mt-1">3D UNDEAD SURVIVAL</p>
               </div>
@@ -444,7 +456,7 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
                 </h3>
                 <p className="text-slate-300 text-sm leading-relaxed">
                   {selectedMapConfig.id === 'default_der_abandoned'
-                    ? 'Deep inside a forgotten Cold War weapons testing facility, waves of terrifying zombie shamblers breach wooden window barriers. Purchase wall guns, drink Perk-a-Colas, and unlock the Pack-a-Punch machine to survive the night.'
+                    ? 'Deep inside a forgotten Cold War weapons testing facility, waves of terrifying zombie shamblers breach wooden window barriers. Purchase wall guns, drink Power Brews, and unlock the Hyper-Forge to survive the night.'
                     : `Custom arena built in Map Maker Studio. Features ${selectedMapConfig.objects.length} 3D objects, ${
                         selectedMapConfig.objects.filter((o) => o.type === 'window_barrier').length
                       } Window Barriers, and ${

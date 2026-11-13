@@ -180,7 +180,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ engine, onClose })
             {/* Tactical Flashlight Intensity */}
             <div className="bg-slate-950/80 border border-slate-800 p-4 rounded-xl space-y-2">
               <div className="flex items-center justify-between text-sm font-semibold text-slate-200">
-                <span>Player Tactical Flashlight Power</span>
+                <div className="flex items-center gap-2">
+                  <span>Player Tactical Flashlight Power</span>
+                  <button
+                    onClick={() => engine.toggleFlashlight()}
+                    className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-colors cursor-pointer ${
+                      engine.isFlashlightOn
+                        ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50'
+                        : 'bg-slate-800 text-slate-400 border-slate-700'
+                    }`}
+                  >
+                    {engine.isFlashlightOn ? 'ON' : 'OFF'}
+                  </button>
+                </div>
                 <span className="text-cyan-400 font-bold font-mono">
                   {settings.flashlightIntensity.toFixed(1)} Lumens
                 </span>
@@ -194,6 +206,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ engine, onClose })
                 onChange={handleFlashlightChange}
                 className="w-full accent-cyan-500 cursor-pointer h-2 bg-slate-800 rounded-lg"
               />
+              <div className="flex justify-between text-[10px] text-slate-500">
+                <span>Press [T] in-game to toggle ON/OFF</span>
+                <span>Default (4.5 Lumens)</span>
+              </div>
             </div>
 
             {/* Field of View (FOV) */}

@@ -9,9 +9,8 @@ import {
   createPerkMachineTexture,
   createPackAPunchTexture,
   createMysteryBoxTexture,
-  createWallBuyChalkTexture,
 } from '../utils/proceduralTextures';
-import { createWeapon3DModel } from './GameEngine';
+import { createCustomPropMesh } from './GameEngine';
 
 export class MapEditorEngine {
   public container: HTMLDivElement;
@@ -37,6 +36,9 @@ export class MapEditorEngine {
   private resizeObserver: ResizeObserver | null = null;
   private dragStartScale: THREE.Vector3 | null = null;
   private dragStartPosition: THREE.Vector3 | null = null;
+  private editorAmbientLight!: THREE.AmbientLight;
+  private editorDirLight!: THREE.DirectionalLight;
+  public isDarknessPreview: boolean = false;
 
   constructor(container: HTMLDivElement, initialConfig: CustomMapConfig) {
     this.container = container;
@@ -127,11 +129,11 @@ export class MapEditorEngine {
     });
 
     // 6. Lighting
-    const amb = new THREE.AmbientLight('#ffffff', 0.6);
-    this.scene.add(amb);
-    const dir = new THREE.DirectionalLight('#ffffff', 1.2);
-    dir.position.set(15, 25, 15);
-    this.scene.add(dir);
+    this.editorAmbientLight = new THREE.AmbientLight('#ffffff', 0.6);
+    this.scene.add(this.editorAmbientLight);
+    this.editorDirLight = new THREE.DirectionalLight('#ffffff', 1.2);
+    this.editorDirLight.position.set(15, 25, 15);
+    this.scene.add(this.editorDirLight);
 
     // 7. Grid Helper Floor
     const grid = new THREE.GridHelper(40, 40, '#dc2626', '#334155');
@@ -148,6 +150,9 @@ export class MapEditorEngine {
     this.animate();
   }
 
+  private pointerDownPos: { x: number; y: number } | null = null;
+  private pointerDownOnGizmo: boolean = false;
+
   private setupEventListeners() {
     window.addEventListener('resize', this.onResize);
     if (typeof ResizeObserver !== 'undefined' && this.container) {
@@ -155,49 +160,65 @@ export class MapEditorEngine {
       this.resizeObserver.observe(this.container);
     }
 
-    // Raycast click-to-select in 3D viewport
-    this.renderer.domElement.addEventListener('pointerdown', (e) => {
-      // Only handle primary left click
-      if (e.button !== 0) return;
+    // Track pointerdown so we distinguish a clean click from an orbit drag or gizmo drag
+    this.renderer.domElement.addEventListener('pointerdown', this.onCanvasPointerDown);
+    this.renderer.domElement.addEventListener('pointerup', this.onCanvasPointerUp);
+  }
 
-      // Ignore raycasts if user is dragging transform gizmo
-      if (this.transformControls.dragging) return;
+  private onCanvasPointerDown = (e: PointerEvent) => {
+    if (e.button !== 0) return;
+    this.pointerDownPos = { x: e.clientX, y: e.clientY };
+    this.pointerDownOnGizmo =
+      Boolean(this.transformControls.dragging) ||
+      (Boolean((this.transformControls as any).object) && (this.transformControls as any).axis !== null);
+  };
 
-      const rect = this.renderer.domElement.getBoundingClientRect();
-      const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  private onCanvasPointerUp = (e: PointerEvent) => {
+    if (e.button !== 0) return;
+    const downPos = this.pointerDownPos;
+    const wasGizmo = this.pointerDownOnGizmo;
+    this.pointerDownPos = null;
+    this.pointerDownOnGizmo = false;
 
-      const raycaster = new THREE.Raycaster();
-      raycaster.setFromCamera(new THREE.Vector2(x, y), this.camera);
+    if (wasGizmo || this.transformControls.dragging) return;
 
-      // Check if click hit transformControls gizmo
-      if (this.transformGizmoHelper) {
-        const gizmoIntersects = raycaster.intersectObjects([this.transformGizmoHelper], true);
-        if (gizmoIntersects.length > 0) return;
+    // Ignore drags (e.g. camera orbit); only select on clean click
+    if (downPos) {
+      const dx = e.clientX - downPos.x;
+      const dy = e.clientY - downPos.y;
+      if (dx * dx + dy * dy > 36) return;
+    }
+
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2(x, y), this.camera);
+
+    const selectableMeshes: THREE.Object3D[] = [];
+    this.objectMeshMap.forEach((mesh) => selectableMeshes.push(mesh));
+
+    const intersects = raycaster.intersectObjects(selectableMeshes, true);
+
+    if (intersects.length > 0) {
+      let topObj: THREE.Object3D | null = intersects[0].object;
+      while (topObj && topObj.parent && topObj.parent !== this.scene) {
+        topObj = topObj.parent;
       }
 
-      const selectableMeshes: THREE.Object3D[] = [];
-      this.objectMeshMap.forEach((mesh) => selectableMeshes.push(mesh));
-
-      const intersects = raycaster.intersectObjects(selectableMeshes, true);
-
-      if (intersects.length > 0) {
-        let topObj: THREE.Object3D | null = intersects[0].object;
-        while (topObj && topObj.parent && topObj.parent !== this.scene) {
-          topObj = topObj.parent;
-        }
-
-        if (topObj) {
-          for (const [id, mesh] of this.objectMeshMap.entries()) {
-            if (mesh === topObj) {
-              this.selectObject(id);
-              return;
-            }
+      if (topObj) {
+        for (const [id, mesh] of this.objectMeshMap.entries()) {
+          if (mesh === topObj) {
+            this.selectObject(id);
+            return;
           }
         }
       }
-    });
-  }
+    } else {
+      this.selectObject(null);
+    }
+  };
 
   private onResize = () => {
     if (!this.container) return;
@@ -230,6 +251,21 @@ export class MapEditorEngine {
   public setTransformMode(mode: 'translate' | 'rotate' | 'scale') {
     this.currentTransformMode = mode;
     this.transformControls.setMode(mode);
+  }
+
+  public setDarknessPreview(enabled: boolean) {
+    this.isDarknessPreview = enabled;
+    if (enabled) {
+      this.editorAmbientLight.intensity = 0.04;
+      this.editorDirLight.intensity = 0.0;
+      this.scene.background = new THREE.Color('#030508');
+      this.scene.fog = new THREE.Fog('#030508', 18, 65);
+    } else {
+      this.editorAmbientLight.intensity = 0.6;
+      this.editorDirLight.intensity = 1.2;
+      this.scene.background = new THREE.Color('#0c1017');
+      this.scene.fog = new THREE.Fog('#0c1017', 25, 80);
+    }
   }
 
   private updateSelectionHelper() {
@@ -303,16 +339,33 @@ export class MapEditorEngine {
       const mesh = new THREE.Mesh(geo, mat);
       group.add(mesh);
     } else if (obj.type === 'light') {
-      // Light Bulb / Cube indicator + Actual PointLight
-      const bulbGeo = new THREE.SphereGeometry(0.3, 12, 12);
-      const bulbMat = new THREE.MeshBasicMaterial({ color: obj.color });
-      const bulb = new THREE.Mesh(bulbGeo, bulbMat);
-      group.add(bulb);
+      // Physical Light Block Fixture + Calibrated PointLight
+      const lightLevel = Math.max(0, obj.intensity ?? 0);
 
-      const cage = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), new THREE.MeshBasicMaterial({ color: obj.color, wireframe: true }));
+      const housing = new THREE.Mesh(
+        new THREE.BoxGeometry(0.56, 0.22, 0.56),
+        new THREE.MeshStandardMaterial({ color: '#181e29', roughness: 0.5, metalness: 0.7 })
+      );
+      housing.position.y = 0.14;
+      group.add(housing);
+
+      const coreMat = new THREE.MeshStandardMaterial({
+        color: lightLevel > 0 ? obj.color : '#1f2937',
+        emissive: obj.color,
+        emissiveIntensity: lightLevel > 0 ? Math.min(4.0, 0.35 + lightLevel * 0.4) : 0,
+        roughness: 0.2,
+      });
+      const core = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.28, 0.44), coreMat);
+      core.position.y = -0.04;
+      group.add(core);
+
+      const cage = new THREE.Mesh(
+        new THREE.BoxGeometry(0.62, 0.62, 0.62),
+        new THREE.MeshBasicMaterial({ color: obj.color, wireframe: true, opacity: 0.35, transparent: true })
+      );
       group.add(cage);
 
-      const pLight = new THREE.PointLight(obj.color, obj.intensity, obj.distance);
+      const pLight = new THREE.PointLight(obj.color, lightLevel * 6, obj.distance || 20, 1.0);
       group.add(pLight);
     } else if (obj.type === 'perk_juggernog' || obj.type === 'perk_speedcola' || obj.type === 'perk_doubletap') {
       const perkType = obj.type === 'perk_juggernog' ? 'juggernog' : obj.type === 'perk_speedcola' ? 'speedCola' : 'doubleTap';
@@ -372,20 +425,24 @@ export class MapEditorEngine {
         p.position.set(0, yOff, 0);
         group.add(p);
       });
-    } else if (obj.type === 'wall_buy_smg' || obj.type === 'wall_buy_ar' || obj.type === 'wall_buy_shotgun') {
-      const name = obj.type === 'wall_buy_smg' ? 'MP40' : obj.type === 'wall_buy_ar' ? 'KN-44' : 'KRM-262';
-      const price = obj.type === 'wall_buy_smg' ? 1000 : obj.type === 'wall_buy_ar' ? 1500 : 1200;
-      const wepType = obj.type === 'wall_buy_smg' ? 'smg' : obj.type === 'wall_buy_ar' ? 'ar' : 'shotgun';
-
-      const tex = createWallBuyChalkTexture(name, price);
-      const plaque = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.1, 0.08), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.5 }));
-      group.add(plaque);
-
-      const gunModel = createWeapon3DModel(wepType, false);
-      gunModel.scale.set(1.1, 1.1, 1.1);
-      gunModel.position.set(0, 0.18, 0.1);
-      gunModel.rotation.y = Math.PI / 2;
-      group.add(gunModel);
+    } else if (
+      obj.type === 'wall_buy_smg' ||
+      obj.type === 'wall_buy_ar' ||
+      obj.type === 'wall_buy_shotgun' ||
+      obj.type === 'wall_buy_sniper' ||
+      obj.type === 'wall_buy_lmg' ||
+      obj.type === 'wall_buy_raygun' ||
+      obj.type === 'ammo_crate' ||
+      obj.type === 'explosive_barrel' ||
+      obj.type === 'teleporter' ||
+      obj.type === 'crate_cover' ||
+      obj.type === 'sandbag_wall' ||
+      obj.type === 'pillar'
+    ) {
+      const propMesh = createCustomPropMesh(obj.type, obj.color);
+      if (propMesh) {
+        group.add(propMesh);
+      }
     } else if (obj.type === 'player_spawn') {
       // Spawn pedestal & arrow
       const base = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 0.15, 16), new THREE.MeshBasicMaterial({ color: '#10b981', wireframe: true }));
@@ -603,6 +660,10 @@ export class MapEditorEngine {
     }
     cancelAnimationFrame(this.animFrameId);
     window.removeEventListener('resize', this.onResize);
+    if (this.renderer.domElement) {
+      this.renderer.domElement.removeEventListener('pointerdown', this.onCanvasPointerDown);
+      this.renderer.domElement.removeEventListener('pointerup', this.onCanvasPointerUp);
+    }
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
       this.resizeObserver = null;

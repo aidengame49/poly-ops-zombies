@@ -64,15 +64,18 @@ export const HowToPlayModal: React.FC<HowToPlayModalProps> = ({ onClose }) => {
                 <span className="text-red-400 font-bold">HOLD 'E'</span> - Repair Window Planks
               </div>
               <div>
-                <span className="text-red-400 font-bold">PRESS 'E'</span> - Buy Weapons / Perks / Mystery Box
+                <span className="text-red-400 font-bold">PRESS 'E'</span> - Buy Weapons / Boosts / Armory Chest
+              </div>
+              <div>
+                <span className="text-red-400 font-bold">T</span> - Toggle Tactical Flashlight
               </div>
             </div>
           </div>
 
-          {/* Perks Info */}
+          {/* Power Brews Info */}
           <div className="space-y-3">
             <div className="text-xs font-bold tracking-widest text-emerald-400 uppercase flex items-center gap-2">
-              <Zap className="w-4 h-4" /> PERK-A-COLA VENDING MACHINES
+              <Zap className="w-4 h-4" /> POWER BREW VENDING MACHINES
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="bg-slate-950 border border-red-900/40 p-3 rounded-xl flex items-center gap-3">
@@ -80,7 +83,7 @@ export const HowToPlayModal: React.FC<HowToPlayModalProps> = ({ onClose }) => {
                   <Shield className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-red-400">JUGGERNOG</div>
+                  <div className="text-xs font-bold text-red-400">TITAN TONIC</div>
                   <div className="text-[11px] text-slate-400">Boosts Max HP from 100 to 250 [2,500 Pts]</div>
                 </div>
               </div>
@@ -90,7 +93,7 @@ export const HowToPlayModal: React.FC<HowToPlayModalProps> = ({ onClose }) => {
                   <Zap className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-emerald-400">SPEED COLA</div>
+                  <div className="text-xs font-bold text-emerald-400">BLITZ BREW</div>
                   <div className="text-[11px] text-slate-400">Cuts reload time by 50% [3,000 Pts]</div>
                 </div>
               </div>
@@ -100,8 +103,8 @@ export const HowToPlayModal: React.FC<HowToPlayModalProps> = ({ onClose }) => {
                   <Target className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-amber-400">DOUBLE TAP</div>
-                  <div className="text-[11px] text-slate-400">+50% Fire Rate & Double Damage [2,000 Pts]</div>
+                  <div className="text-xs font-bold text-amber-400">FURY FIZZ</div>
+                  <div className="text-[11px] text-slate-400">+50% Fire Rate & Bonus Damage [2,000 Pts]</div>
                 </div>
               </div>
             </div>
@@ -110,15 +113,15 @@ export const HowToPlayModal: React.FC<HowToPlayModalProps> = ({ onClose }) => {
           {/* Stations Info */}
           <div className="space-y-3">
             <div className="text-xs font-bold tracking-widest text-cyan-400 uppercase flex items-center gap-2">
-              <Flame className="w-4 h-4" /> PACK-A-PUNCH & MYSTERY BOX
+              <Flame className="w-4 h-4" /> HYPER-FORGE & ARMORY CHEST
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
               <div className="bg-slate-950 border border-cyan-900/40 p-3 rounded-xl flex items-center gap-3">
                 <div className="w-9 h-9 rounded-lg bg-cyan-950 border border-cyan-500 flex items-center justify-center shrink-0 text-cyan-400 font-extrabold">
-                  PaP
+                  HF
                 </div>
                 <div>
-                  <div className="font-bold text-cyan-300">PACK-A-PUNCH [5,000 PTS]</div>
+                  <div className="font-bold text-cyan-300">HYPER-FORGE [5,000 PTS]</div>
                   <div className="text-slate-400">Doubles damage, clip capacity & reserve ammo with energy tracer rounds!</div>
                 </div>
               </div>
@@ -128,8 +131,8 @@ export const HowToPlayModal: React.FC<HowToPlayModalProps> = ({ onClose }) => {
                   <Box className="w-5 h-5" />
                 </div>
                 <div>
-                  <div className="font-bold text-amber-300">MYSTERY BOX [950 PTS]</div>
-                  <div className="text-slate-400">Spin for powerful weaponry including the legendary Ray Gun!</div>
+                  <div className="font-bold text-amber-300">ARMORY CHEST [950 PTS]</div>
+                  <div className="text-slate-400">Spin for powerful weaponry including the legendary Plasma Blaster!</div>
                 </div>
               </div>
             </div>
