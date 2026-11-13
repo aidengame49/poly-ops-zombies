@@ -21,7 +21,12 @@ import {
 import { soundEngine } from '../utils/soundEngine';
 import { crazyGames, gameStorage, STORAGE_KEYS } from '../utils/crazyGames';
 import { multiplayerClient } from '../utils/multiplayerClient';
-import { deviceManager, type DeviceMode } from '../utils/deviceMode';
+import {
+  deviceManager,
+  OPTIMIZATION_SPECS,
+  type DeviceMode,
+  type OptimizationProfile,
+} from '../utils/deviceMode';
 import type { CoopMemberState, MultiplayerRoomState, NetZombieState } from '../types/multiplayer';
 import {
   createRemotePlayerRig,
@@ -1071,10 +1076,12 @@ export class GameEngine {
   private clock: THREE.Clock;
 
   public deviceMode: DeviceMode = deviceManager.getState().effectiveMode;
+  public optimizationProfile: OptimizationProfile = deviceManager.getState().effectiveOptimization;
   public isTouchMode: boolean = deviceManager.getState().effectiveMode !== 'computer';
   private touchMoveVec = { x: 0, y: 0 };
   private touchSprint: boolean = false;
   private resizeObserver: ResizeObserver | null = null;
+  private lastPromptSent: string = '';
 
   public setDeviceMode(mode: DeviceMode) {
     this.deviceMode = mode;
@@ -1087,6 +1094,187 @@ export class GameEngine {
     this.touchSprint = false;
     this.onWindowResize();
     this.onStateUpdate?.();
+  }
+
+  public setOptimizationProfile(profile: OptimizationProfile) {
+    if (this.optimizationProfile === profile) return;
+    this.optimizationProfile = profile;
+    this.applyOptimizationSettings(false);
+    this.onStateUpdate?.();
+  }
+
+  private applyOptimizationSettings(skipMaterialRecompile = false) {
+    if (!this.renderer || !this.camera || !this.scene) return;
+    const spec = OPTIMIZATION_SPECS[this.optimizationProfile];
+
+    // 1. Resolution Scale (cuts mobile GPU fragment load up to 75-85% on high-DPR phones)
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, spec.maxPixelRatio));
+    this.onWindowResize();
+
+    // 2. Camera Far Clip
+    if (this.camera.far !== spec.cameraFar) {
+      this.camera.far = spec.cameraFar;
+      this.camera.updateProjectionMatrix();
+    }
+
+    // 3. Shadow Map Control (disables cubemap PointLight shadow passes on phone/tablet)
+    const shadowStateChanged = this.renderer.shadowMap.enabled !== spec.shadowsEnabled;
+    this.renderer.shadowMap.enabled = spec.shadowsEnabled;
+    this.renderer.shadowMap.type = spec.softShadows ? THREE.PCFSoftShadowMap : THREE.BasicShadowMap;
+    this.renderer.shadowMap.autoUpdate = spec.shadowsEnabled;
+    if (spec.shadowsEnabled) {
+      this.renderer.shadowMap.needsUpdate = true;
+    }
+
+    // 4. Studio Environment IBL (kept on desktop/tablet; replaced by direct mobile fill on phone for guaranteed brightness + speed)
+    if (!this.activeMapConfig) {
+      this.scene.environment = spec.environmentLighting ? this.defaultRoomEnv : null;
+    }
+
+    // 5. Tone Mapping Exposure Boost for Mobile/Tablet Displays
+    const exposureMult =
+      spec.lightBudget === 'essential' ? 1.28 : spec.lightBudget === 'balanced' ? 1.12 : 1.0;
+    this.renderer.toneMappingExposure = this.settings.exposure * exposureMult;
+
+    // 6. Dedicated Mobile/Tablet Fill Rig (guarantees clear visibility on all mobile GPUs even without PMREM/shadows)
+    if (!this.mobileFillHemi) {
+      this.mobileFillHemi = new THREE.HemisphereLight('#dce8f8', '#788596', 0);
+    }
+    if (this.mobileFillHemi.parent !== this.scene) {
+      this.scene.add(this.mobileFillHemi);
+    }
+    if (!this.mobileFillDir) {
+      this.mobileFillDir = new THREE.DirectionalLight('#f4f8ff', 0);
+      this.mobileFillDir.position.set(14, 26, 16);
+      this.mobileFillDir.castShadow = false;
+    }
+    if (this.mobileFillDir.parent !== this.scene) {
+      this.scene.add(this.mobileFillDir);
+    }
+
+    if (spec.lightBudget === 'essential') {
+      this.mobileFillHemi.intensity = this.activeMapConfig ? 0.45 : 1.45;
+      this.mobileFillHemi.visible = true;
+      this.mobileFillDir.intensity = this.activeMapConfig ? 0.28 : 1.15;
+      this.mobileFillDir.visible = true;
+    } else if (spec.lightBudget === 'balanced') {
+      this.mobileFillHemi.intensity = this.activeMapConfig ? 0.2 : 0.65;
+      this.mobileFillHemi.visible = true;
+      this.mobileFillDir.intensity = this.activeMapConfig ? 0.12 : 0.5;
+      this.mobileFillDir.visible = true;
+    } else {
+      this.mobileFillHemi.intensity = 0;
+      this.mobileFillHemi.visible = false;
+      this.mobileFillDir.intensity = 0;
+      this.mobileFillDir.visible = false;
+    }
+
+    // 7. Dynamic Light Budget + Shadow Disabling + Mobile Decay Adjustment across loaded map
+    let accentBudgetRemaining =
+      spec.lightBudget === 'essential' ? 6 : spec.lightBudget === 'balanced' ? 10 : 999;
+
+    this.scene.traverse((obj) => {
+      if (!(obj as THREE.Light).isLight) return;
+      const light = obj as THREE.Light;
+      if (
+        light === this.playerFlashlight ||
+        light === this.muzzleFlashLight ||
+        light === this.mobileFillHemi ||
+        light === this.mobileFillDir
+      ) {
+        return;
+      }
+
+      if (light.userData.baseIntensity === undefined) {
+        light.userData.baseIntensity = light.intensity;
+      }
+      if (light.userData.baseCastShadow === undefined) {
+        light.userData.baseCastShadow = light.castShadow;
+      }
+
+      if ((light as THREE.AmbientLight).isAmbientLight || (light as THREE.HemisphereLight).isHemisphereLight) {
+        const boost = !this.activeMapConfig
+          ? spec.lightBudget === 'essential'
+            ? 2.4
+            : spec.lightBudget === 'balanced'
+            ? 1.5
+            : 1.0
+          : spec.lightBudget === 'essential'
+          ? 2.0
+          : spec.lightBudget === 'balanced'
+          ? 1.35
+          : 1.0;
+        light.intensity = light.userData.baseIntensity * boost;
+        light.visible = true;
+        return;
+      }
+
+      if ((light as THREE.DirectionalLight).isDirectionalLight) {
+        const dirBoost =
+          spec.lightBudget === 'essential' ? 1.45 : spec.lightBudget === 'balanced' ? 1.18 : 1.0;
+        light.intensity = light.userData.baseIntensity * dirBoost;
+        light.visible = true;
+        light.castShadow = spec.shadowsEnabled && Boolean(light.userData.baseCastShadow);
+        return;
+      }
+
+      if ((light as THREE.PointLight).isPointLight) {
+        const pLight = light as THREE.PointLight;
+        if (pLight.userData.baseDecay === undefined) {
+          pLight.userData.baseDecay = pLight.decay;
+        }
+        pLight.castShadow =
+          spec.shadowsEnabled && spec.pointLightShadows && Boolean(light.userData.baseCastShadow);
+        const pointBoost =
+          spec.lightBudget === 'essential' ? 1.35 : spec.lightBudget === 'balanced' ? 1.15 : 1.0;
+        pLight.intensity = light.userData.baseIntensity * pointBoost;
+        pLight.decay =
+          spec.lightBudget === 'essential'
+            ? Math.min(pLight.userData.baseDecay, 1.0)
+            : spec.lightBudget === 'balanced'
+            ? Math.min(pLight.userData.baseDecay, 1.35)
+            : pLight.userData.baseDecay;
+
+        const isPrimary =
+          Boolean(light.userData.isEssentialLight) ||
+          this.sconceLights.includes(pLight) ||
+          pLight.distance === 0 ||
+          pLight.distance >= 20 ||
+          light === this.forestLavaState?.campfireLight;
+        if (isPrimary) {
+          pLight.visible = true;
+        } else if (accentBudgetRemaining > 0) {
+          pLight.visible = true;
+          accentBudgetRemaining--;
+        } else {
+          pLight.visible = false;
+        }
+        return;
+      }
+
+      if ((light as THREE.SpotLight).isSpotLight) {
+        light.castShadow = false;
+        if (accentBudgetRemaining > 0) {
+          light.visible = true;
+          accentBudgetRemaining--;
+        } else {
+          light.visible = false;
+        }
+      }
+    });
+
+    this.applyFlashlightState();
+
+    if (!skipMaterialRecompile && shadowStateChanged) {
+      this.scene.traverse((obj) => {
+        const mesh = obj as THREE.Mesh;
+        if (!mesh.isMesh || !mesh.material) return;
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        mats.forEach((m) => {
+          m.needsUpdate = true;
+        });
+      });
+    }
   }
 
   public setTouchMove(x: number, y: number, sprint: boolean) {
@@ -1155,11 +1343,11 @@ export class GameEngine {
     this.isHoldingInteract = false;
     this.playerVel.set(0, 0, 0);
     this.stats.isPaused = true;
+    crazyGames.stopGameplay();
     if (document.pointerLockElement === this.container) {
       document.exitPointerLock();
     }
     if (!this.isMultiplayer) {
-      crazyGames.stopGameplay();
       this.saveCurrentMatch();
     }
     this.onStateUpdate?.();
@@ -1176,6 +1364,18 @@ export class GameEngine {
     }
   }
 
+  private safeRequestPointerLock() {
+    if (!this.container) return;
+    try {
+      const maybePromise = this.container.requestPointerLock() as unknown as Promise<void> | undefined;
+      if (maybePromise && typeof maybePromise.catch === 'function') {
+        maybePromise.catch(() => {});
+      }
+    } catch {
+      // Ignore if called outside user gesture
+    }
+  }
+
   public requestLock() {
     if (!this.container || !this.isMapLoaded || this.stats.isGameOver) return;
     if (this.isTouchMode) {
@@ -1184,7 +1384,7 @@ export class GameEngine {
       this.onStateUpdate?.();
       return;
     }
-    this.container.requestPointerLock();
+    this.safeRequestPointerLock();
   }
 
   // Game State
@@ -1300,9 +1500,23 @@ export class GameEngine {
 
   // Interactive Prompt
   public currentPrompt: string = '';
+  private lastHudSyncAt: number = 0;
   private interactTargetAction: (() => void) | null = null;
   private isHoldingInteract: boolean = false;
   private repairTimer: number = 0;
+
+  private notifyHudThrottled() {
+    const interval = OPTIMIZATION_SPECS[this.optimizationProfile].hudSyncIntervalMs;
+    if (interval <= 0) {
+      this.onStateUpdate?.();
+      return;
+    }
+    const now = performance.now();
+    if (now - this.lastHudSyncAt >= interval) {
+      this.lastHudSyncAt = now;
+      this.onStateUpdate?.();
+    }
+  }
 
   // Settings & Career Records Configuration
   public settings: PlayerSettings = {
@@ -1331,6 +1545,8 @@ export class GameEngine {
   private lastHappyTimeRound: number = 1;
 
   private ambientLight!: THREE.AmbientLight;
+  private mobileFillHemi: THREE.HemisphereLight | null = null;
+  private mobileFillDir: THREE.DirectionalLight | null = null;
   private defaultRoomEnv: THREE.Texture | null = null;
 
   public reloadPersistedState() {
@@ -1346,9 +1562,7 @@ export class GameEngine {
         masterVolume: typeof savedSettings.masterVolume === 'number' ? savedSettings.masterVolume : 80,
       };
       soundEngine.setVolume(this.settings.masterVolume / 100);
-      if (this.renderer) {
-        this.renderer.toneMappingExposure = this.settings.exposure;
-      }
+      this.applyOptimizationSettings(true);
       if (this.camera && !this.isAiming) {
         this.camera.fov = this.settings.fov;
         this.camera.updateProjectionMatrix();
@@ -1506,22 +1720,21 @@ export class GameEngine {
   public setWorldBrightness(val: number) {
     this.settings.worldBrightness = val;
     if (this.ambientLight) {
-      this.ambientLight.intensity = this.activeMapConfig
+      const base = this.activeMapConfig
         ? 0.04 * val
         : this.activeOfficialMapId === OFFICIAL_BLIGHTED_WOODS_ID
-        ? 0.2 + val * 0.45
+        ? 0.28 + val * 0.52
         : 0.35 + val * 0.6;
+      this.ambientLight.userData.baseIntensity = base;
     }
-    if (this.renderer && !this.activeMapConfig) {
-      this.renderer.toneMappingExposure = 0.7 + val * 0.55;
-    }
+    this.applyOptimizationSettings(true);
     this.persistSettings();
     this.onStateUpdate?.();
   }
 
   public setExposure(val: number) {
     this.settings.exposure = val;
-    this.renderer.toneMappingExposure = val;
+    this.applyOptimizationSettings(true);
     this.persistSettings();
     this.onStateUpdate?.();
   }
@@ -1552,8 +1765,9 @@ export class GameEngine {
 
   private applyFlashlightState() {
     if (this.playerFlashlight) {
+      const mult = this.optimizationProfile === 'phone_performance' ? 17 : 14;
       this.playerFlashlight.intensity = this.isFlashlightOn
-        ? this.settings.flashlightIntensity * 14
+        ? this.settings.flashlightIntensity * mult
         : 0;
     }
     if (this.flashlightLensMat) {
@@ -1642,15 +1856,24 @@ export class GameEngine {
     );
     this.camera.position.copy(this.playerPos);
 
-    // Renderer
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    const initialState = deviceManager.getState();
+    this.deviceMode = initialState.effectiveMode;
+    this.optimizationProfile = initialState.effectiveOptimization;
+    this.isTouchMode = initialState.effectiveMode !== 'computer';
+    const initSpec = OPTIMIZATION_SPECS[this.optimizationProfile];
+
+    // Renderer (skip MSAA resolve on mobile phones for huge tile-GPU speedup)
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: this.optimizationProfile !== 'phone_performance',
+      powerPreference: 'high-performance',
+    });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, initSpec.maxPixelRatio));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = this.settings.exposure;
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.enabled = initSpec.shadowsEnabled;
+    this.renderer.shadowMap.type = initSpec.softShadows ? THREE.PCFSoftShadowMap : THREE.BasicShadowMap;
 
     this.container.appendChild(this.renderer.domElement);
 
@@ -1661,11 +1884,13 @@ export class GameEngine {
     try {
       const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
       this.defaultRoomEnv = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
-      this.scene.environment = this.defaultRoomEnv;
+      this.scene.environment = initSpec.environmentLighting ? this.defaultRoomEnv : null;
       pmremGenerator.dispose();
     } catch (e) {
       console.warn('RoomEnvironment generator safely bypassed:', e);
     }
+
+    this.applyOptimizationSettings(true);
 
     // Controls listeners
     this.setupEventListeners();
@@ -1779,6 +2004,7 @@ export class GameEngine {
 
     this.setupGunRig();
     this.setupPlayerBodyRig();
+    this.applyOptimizationSettings(false);
 
     // Start Wave 1
     this.syncedRunKills = 0;
@@ -1893,6 +2119,7 @@ export class GameEngine {
     this.syncMultiplayerZombies(initialZombies || []);
     this.syncRemotePlayers(room.members || []);
     this.registerMultiplayerHooks();
+    this.applyOptimizationSettings(false);
 
     this.isMapLoaded = true;
     crazyGames.startGameplay();
@@ -2369,6 +2596,7 @@ export class GameEngine {
         });
       }
 
+      this.applyOptimizationSettings(false);
       this.isMapLoaded = true;
       this.autoSaveTimer = 0;
       this.lastHappyTimeRound = this.stats.round;
@@ -2389,7 +2617,7 @@ export class GameEngine {
     this.scene.background = new THREE.Color('#081018');
     this.scene.fog = new THREE.FogExp2('#081018', 0.022);
 
-    this.ambientLight = new THREE.AmbientLight('#273b4f', 0.2 + this.settings.worldBrightness * 0.45);
+    this.ambientLight = new THREE.AmbientLight('#344e68', 0.28 + this.settings.worldBrightness * 0.52);
     this.scene.add(this.ambientLight);
 
     this.playerFlashlight = new THREE.SpotLight('#e5f2ff', 0, 46, Math.PI / 5.5, 0.5, 0.65);
@@ -2404,7 +2632,9 @@ export class GameEngine {
     this.customTeleporters = [];
     this.sconceLights = [];
 
-    const maxAnisotropy = this.renderer?.capabilities?.getMaxAnisotropy?.() || 4;
+    const spec = OPTIMIZATION_SPECS[this.optimizationProfile];
+    const hwMax = this.renderer?.capabilities?.getMaxAnisotropy?.() || 4;
+    const maxAnisotropy = Math.min(hwMax, spec.maxAnisotropy);
     const state = buildForestLavaMap(this.scene, maxAnisotropy, createWeapon3DModel);
     this.forestLavaState = state;
     this.customSolidBoxes = state.solidBoxes;
@@ -2488,6 +2718,7 @@ export class GameEngine {
         const effIntensity = lightLevel * 6;
         const pLight = new THREE.PointLight(obj.color, effIntensity, obj.distance || 20, 1.0);
         pLight.position.set(obj.position.x, obj.position.y, obj.position.z);
+        pLight.userData.isEssentialLight = true;
 
         // Allow up to 2 shadow-casting custom lights to keep walls blocking light without overflowing WebGL texture units
         const shadowLightCount = this.scene.children.filter(
@@ -2804,6 +3035,8 @@ export class GameEngine {
     this.isFlashlightOn = true;
 
     this.isMapLoaded = false;
+    this.currentPrompt = '';
+    this.lastPromptSent = '';
     crazyGames.stopGameplay();
     crazyGames.clearGameContext();
     this.isFiring = false;
@@ -2840,6 +3073,7 @@ export class GameEngine {
     // Centered Warm Overhead Point Light
     const centerLight = new THREE.PointLight('#ffb044', 3.2, 38);
     centerLight.position.set(0, 4.3, 0);
+    centerLight.userData.isEssentialLight = true;
     centerLight.castShadow = true;
     centerLight.shadow.bias = -0.0005;
     centerLight.shadow.mapSize.width = 1024;
@@ -3372,7 +3606,7 @@ export class GameEngine {
     this.container.addEventListener('click', (e) => {
       if (e.button === 0 && !this.isTouchMode) {
         if (this.isMapLoaded && !this.isPointerLocked && !this.stats.isGameOver && !this.stats.isPaused) {
-          this.container.requestPointerLock();
+          this.safeRequestPointerLock();
         }
       }
     });
@@ -3412,8 +3646,8 @@ export class GameEngine {
         this.isAiming = false;
         if (this.isMapLoaded && !this.stats.isGameOver) {
           this.stats.isPaused = true;
+          crazyGames.stopGameplay();
           if (!this.isMultiplayer) {
-            crazyGames.stopGameplay();
             this.saveCurrentMatch();
           }
         }
@@ -3468,8 +3702,17 @@ export class GameEngine {
       this.pitch = Math.max(-Math.PI / 2.1, Math.min(Math.PI / 2.1, this.pitch));
     });
 
-    // Keyboard press
+    // Keyboard press (prevent ArrowUp/ArrowDown/Space from scrolling embed iframe)
     window.addEventListener('keydown', (e) => {
+      const targetEl = e.target as HTMLElement | null;
+      const isTyping =
+        targetEl &&
+        (targetEl.tagName === 'INPUT' || targetEl.tagName === 'TEXTAREA' || targetEl.tagName === 'SELECT' || targetEl.isContentEditable);
+
+      if (!isTyping && (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'ArrowDown')) {
+        e.preventDefault();
+      }
+
       const canInput =
         this.isMapLoaded &&
         !this.stats.isPaused &&
@@ -3510,15 +3753,22 @@ export class GameEngine {
       }
     });
 
-    // Mouse Wheel Scroll Weapon Swap
-    window.addEventListener('wheel', (e) => {
-      if (!this.isPointerLocked) return;
-      if (e.deltaY > 0) {
-        this.switchWeapon((this.currentWeaponIndex + 1) % this.playerWeapons.length);
-      } else {
-        this.switchWeapon((this.currentWeaponIndex - 1 + this.playerWeapons.length) % this.playerWeapons.length);
-      }
-    });
+    // Mouse Wheel Scroll Weapon Swap (non-passive to prevent iframe scroll)
+    window.addEventListener(
+      'wheel',
+      (e) => {
+        if (this.isMapLoaded && !this.stats.isPaused && !this.stats.isGameOver) {
+          e.preventDefault();
+        }
+        if (!this.isPointerLocked) return;
+        if (e.deltaY > 0) {
+          this.switchWeapon((this.currentWeaponIndex + 1) % this.playerWeapons.length);
+        } else {
+          this.switchWeapon((this.currentWeaponIndex - 1 + this.playerWeapons.length) % this.playerWeapons.length);
+        }
+      },
+      { passive: false }
+    );
   }
 
   private onWindowResize = () => {
@@ -3683,8 +3933,9 @@ export class GameEngine {
       color: bulletColor,
     });
 
-    // Muzzle spark burst at gun barrel tip
-    for (let i = 0; i < 4; i++) {
+    // Muzzle spark burst at gun barrel tip (scaled by optimization profile)
+    const sparkCount = this.optimizationProfile === 'phone_performance' ? 1 : this.optimizationProfile === 'tablet_balanced' ? 2 : 4;
+    for (let i = 0; i < sparkCount; i++) {
       const pGeo = new THREE.BoxGeometry(0.03, 0.03, 0.03);
       const pMat = new THREE.MeshBasicMaterial({ color: bulletColor });
       const pMesh = new THREE.Mesh(pGeo, pMat);
@@ -3694,8 +3945,19 @@ export class GameEngine {
       const pVel = dir.clone().multiplyScalar(12).add(
         new THREE.Vector3((Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4)
       );
-      this.particles.push({ mesh: pMesh, velocity: pVel, life: 0.15, maxLife: 0.15, color: bulletColor });
+      this.pushParticle({ mesh: pMesh, velocity: pVel, life: 0.15, maxLife: 0.15, color: bulletColor });
     }
+  }
+
+  private pushParticle(p: Particle) {
+    const cap = OPTIMIZATION_SPECS[this.optimizationProfile].maxParticles;
+    while (this.particles.length >= cap) {
+      const oldest = this.particles.shift();
+      if (oldest) {
+        this.scene.remove(oldest.mesh);
+      }
+    }
+    this.particles.push(p);
   }
 
   private detonateProjectileSplash(center: THREE.Vector3, radius: number, maxDamage: number, splashColor: string) {
@@ -3703,7 +3965,8 @@ export class GameEngine {
       soundEngine.playExplosion();
     }
 
-    const burstCount = radius >= 3.5 ? 24 : 14;
+    const scale = this.optimizationProfile === 'phone_performance' ? 0.35 : this.optimizationProfile === 'tablet_balanced' ? 0.6 : 1;
+    const burstCount = Math.max(3, Math.round((radius >= 3.5 ? 24 : 14) * scale));
     for (let i = 0; i < burstCount; i++) {
       const col = i % 2 === 0 ? splashColor : '#ffffff';
       const pMesh = new THREE.Mesh(
@@ -3717,7 +3980,7 @@ export class GameEngine {
         Math.random() * 6 + 1.5,
         (Math.random() - 0.5) * 9
       );
-      this.particles.push({ mesh: pMesh, velocity: vel, life: 0.5, maxLife: 0.5, color: col });
+      this.pushParticle({ mesh: pMesh, velocity: vel, life: 0.5, maxLife: 0.5, color: col });
     }
 
     let splashKills = 0;
@@ -3982,7 +4245,8 @@ export class GameEngine {
 
   private spawnWallSparks(pos: THREE.Vector3, isPap: boolean) {
     const color = isPap ? '#00f0ff' : '#ffaa22';
-    for (let i = 0; i < 5; i++) {
+    const count = this.optimizationProfile === 'phone_performance' ? 1 : this.optimizationProfile === 'tablet_balanced' ? 3 : 5;
+    for (let i = 0; i < count; i++) {
       const pGeo = new THREE.BoxGeometry(0.04, 0.04, 0.04);
       const pMat = new THREE.MeshBasicMaterial({ color });
       const mesh = new THREE.Mesh(pGeo, pMat);
@@ -3994,12 +4258,13 @@ export class GameEngine {
         Math.random() * 4,
         (Math.random() - 0.5) * 4
       );
-      this.particles.push({ mesh, velocity: vel, life: 0.2, maxLife: 0.2, color });
+      this.pushParticle({ mesh, velocity: vel, life: 0.2, maxLife: 0.2, color });
     }
   }
 
   private spawnBloodParticles(pos: THREE.Vector3) {
-    for (let i = 0; i < 6; i++) {
+    const count = this.optimizationProfile === 'phone_performance' ? 2 : this.optimizationProfile === 'tablet_balanced' ? 3 : 6;
+    for (let i = 0; i < count; i++) {
       const pGeo = new THREE.BoxGeometry(0.06, 0.06, 0.06);
       const pMat = new THREE.MeshBasicMaterial({ color: '#880000' });
       const mesh = new THREE.Mesh(pGeo, pMat);
@@ -4011,7 +4276,7 @@ export class GameEngine {
         Math.random() * 3,
         (Math.random() - 0.5) * 3
       );
-      this.particles.push({ mesh, velocity: vel, life: 0.35, maxLife: 0.35, color: '#880000' });
+      this.pushParticle({ mesh, velocity: vel, life: 0.35, maxLife: 0.35, color: '#880000' });
     }
   }
 
@@ -4067,7 +4332,9 @@ export class GameEngine {
 
   private playBarrelExplosionFxOnly(pos: THREE.Vector3) {
     soundEngine.playExplosion();
-    for (let i = 0; i < 28; i++) {
+    const scale = this.optimizationProfile === 'phone_performance' ? 0.32 : this.optimizationProfile === 'tablet_balanced' ? 0.6 : 1;
+    const count = Math.max(6, Math.round(28 * scale));
+    for (let i = 0; i < count; i++) {
       const col = i % 3 === 0 ? '#ff3300' : i % 3 === 1 ? '#ffaa00' : '#444444';
       const pMesh = new THREE.Mesh(
         new THREE.BoxGeometry(0.18, 0.18, 0.18),
@@ -4080,7 +4347,7 @@ export class GameEngine {
         Math.random() * 8 + 2,
         (Math.random() - 0.5) * 10
       );
-      this.particles.push({ mesh: pMesh, velocity: vel, life: 0.65, maxLife: 0.65, color: col });
+      this.pushParticle({ mesh: pMesh, velocity: vel, life: 0.65, maxLife: 0.65, color: col });
     }
   }
 
@@ -4327,7 +4594,10 @@ export class GameEngine {
 
     if (this.isDowned) {
       this.currentPrompt = `DOWNED — WAIT FOR TEAMMATE REVIVE (${Math.ceil(this.bleedoutTimer)}S)`;
-      this.onStateUpdate?.();
+      if (this.currentPrompt !== this.lastPromptSent) {
+        this.lastPromptSent = this.currentPrompt;
+        this.onStateUpdate?.();
+      }
       return;
     }
 
@@ -4345,7 +4615,10 @@ export class GameEngine {
           this.interactTargetAction = () => {
             multiplayerClient.send({ type: 'player:revive', targetPlayerId: m.playerId });
           };
-          this.onStateUpdate?.();
+          if (this.currentPrompt !== this.lastPromptSent) {
+            this.lastPromptSent = this.currentPrompt;
+            this.onStateUpdate?.();
+          }
           return;
         }
       }
@@ -4540,7 +4813,10 @@ export class GameEngine {
       }
     }
 
-    this.onStateUpdate?.();
+    if (this.currentPrompt !== this.lastPromptSent) {
+      this.lastPromptSent = this.currentPrompt;
+      this.onStateUpdate?.();
+    }
   }
 
   // Trigger Interaction Key Press
@@ -4813,7 +5089,11 @@ export class GameEngine {
 
       if (this.flashScreenAlpha > 0) {
         this.flashScreenAlpha = Math.max(0, this.flashScreenAlpha - delta * 1.45);
-        this.onStateUpdate?.();
+        if (this.flashScreenAlpha === 0) {
+          this.onStateUpdate?.();
+        } else {
+          this.notifyHudThrottled();
+        }
       }
 
       // Subtle flickering animation for sconce lantern lights
@@ -4894,7 +5174,7 @@ export class GameEngine {
         );
         flameMesh.position.set(zPos.x + (Math.random() - 0.5) * 0.4, 0.9 + Math.random() * 0.6, zPos.z + (Math.random() - 0.5) * 0.4);
         this.scene.add(flameMesh);
-        this.particles.push({
+        this.pushParticle({
           mesh: flameMesh,
           velocity: new THREE.Vector3((Math.random() - 0.5) * 1.5, 2.2 + Math.random() * 1.5, (Math.random() - 0.5) * 1.5),
           life: 0.28,
@@ -5149,7 +5429,11 @@ export class GameEngine {
       this.bleedoutTimer = Math.max(0, this.bleedoutTimer - delta);
     } else if (Date.now() - this.lastDamageTime > 4000 && this.playerHp < this.maxHp) {
       this.playerHp = Math.min(this.maxHp, this.playerHp + 40 * delta);
-      this.onStateUpdate?.();
+      if (this.playerHp >= this.maxHp) {
+        this.onStateUpdate?.();
+      } else {
+        this.notifyHudThrottled();
+      }
     }
 
     // Holding 'E' Repair or Teammate Revive Progress
@@ -5258,7 +5542,7 @@ export class GameEngine {
           );
           flameMesh.position.set(zPos.x + (Math.random() - 0.5) * 0.4, 0.9 + Math.random() * 0.6, zPos.z + (Math.random() - 0.5) * 0.4);
           this.scene.add(flameMesh);
-          this.particles.push({
+          this.pushParticle({
             mesh: flameMesh,
             velocity: new THREE.Vector3((Math.random() - 0.5) * 1.5, 2.2 + Math.random() * 1.5, (Math.random() - 0.5) * 1.5),
             life: 0.28,
@@ -5661,9 +5945,11 @@ export class GameEngine {
   }
 
   private playGrenadeFxOnly(type: GrenadeType, center: THREE.Vector3, radius: number) {
+    const scale = this.optimizationProfile === 'phone_performance' ? 0.3 : this.optimizationProfile === 'tablet_balanced' ? 0.55 : 1;
     if (type === 'frag') {
       soundEngine.playExplosion();
-      for (let i = 0; i < 32; i++) {
+      const count = Math.max(6, Math.round(32 * scale));
+      for (let i = 0; i < count; i++) {
         const col = i % 3 === 0 ? '#ff3300' : i % 3 === 1 ? '#ffaa00' : '#334155';
         const pMesh = new THREE.Mesh(
           new THREE.BoxGeometry(0.16, 0.16, 0.16),
@@ -5671,7 +5957,7 @@ export class GameEngine {
         );
         pMesh.position.copy(center);
         this.scene.add(pMesh);
-        this.particles.push({
+        this.pushParticle({
           mesh: pMesh,
           velocity: new THREE.Vector3((Math.random() - 0.5) * 11, Math.random() * 8 + 2, (Math.random() - 0.5) * 11),
           life: 0.65,
@@ -5681,7 +5967,8 @@ export class GameEngine {
       }
     } else if (type === 'flashbang') {
       soundEngine.playFlashbang();
-      for (let i = 0; i < 28; i++) {
+      const count = Math.max(6, Math.round(28 * scale));
+      for (let i = 0; i < count; i++) {
         const col = i % 2 === 0 ? '#ffffff' : '#bae6fd';
         const pMesh = new THREE.Mesh(
           new THREE.BoxGeometry(0.14, 0.14, 0.14),
@@ -5689,7 +5976,7 @@ export class GameEngine {
         );
         pMesh.position.copy(center);
         this.scene.add(pMesh);
-        this.particles.push({
+        this.pushParticle({
           mesh: pMesh,
           velocity: new THREE.Vector3((Math.random() - 0.5) * 12, Math.random() * 6 + 1, (Math.random() - 0.5) * 12),
           life: 0.42,
@@ -5699,7 +5986,8 @@ export class GameEngine {
       }
     } else if (type === 'cryo') {
       soundEngine.playCryoExplosion();
-      for (let i = 0; i < 30; i++) {
+      const count = Math.max(6, Math.round(30 * scale));
+      for (let i = 0; i < count; i++) {
         const col = i % 2 === 0 ? '#67e8f9' : '#e0f2fe';
         const pMesh = new THREE.Mesh(
           new THREE.BoxGeometry(0.14, 0.14, 0.14),
@@ -5707,7 +5995,7 @@ export class GameEngine {
         );
         pMesh.position.copy(center);
         this.scene.add(pMesh);
-        this.particles.push({
+        this.pushParticle({
           mesh: pMesh,
           velocity: new THREE.Vector3((Math.random() - 0.5) * 9, Math.random() * 5 + 1, (Math.random() - 0.5) * 9),
           life: 0.6,
@@ -5717,7 +6005,8 @@ export class GameEngine {
       }
     } else if (type === 'thermite') {
       soundEngine.playExplosion();
-      for (let i = 0; i < 26; i++) {
+      const count = Math.max(6, Math.round(26 * scale));
+      for (let i = 0; i < count; i++) {
         const col = i % 2 === 0 ? '#f97316' : '#facc15';
         const pMesh = new THREE.Mesh(
           new THREE.BoxGeometry(0.14, 0.14, 0.14),
@@ -5725,7 +6014,7 @@ export class GameEngine {
         );
         pMesh.position.copy(center);
         this.scene.add(pMesh);
-        this.particles.push({
+        this.pushParticle({
           mesh: pMesh,
           velocity: new THREE.Vector3((Math.random() - 0.5) * 8, Math.random() * 6 + 2, (Math.random() - 0.5) * 8),
           life: 0.55,
@@ -5791,9 +6080,11 @@ export class GameEngine {
       return;
     }
 
+    const scale = this.optimizationProfile === 'phone_performance' ? 0.3 : this.optimizationProfile === 'tablet_balanced' ? 0.55 : 1;
     if (type === 'frag') {
       soundEngine.playExplosion();
-      for (let i = 0; i < 32; i++) {
+      const count = Math.max(6, Math.round(32 * scale));
+      for (let i = 0; i < count; i++) {
         const col = i % 3 === 0 ? '#ff3300' : i % 3 === 1 ? '#ffaa00' : '#334155';
         const pMesh = new THREE.Mesh(
           new THREE.BoxGeometry(0.16, 0.16, 0.16),
@@ -5801,7 +6092,7 @@ export class GameEngine {
         );
         pMesh.position.copy(center);
         this.scene.add(pMesh);
-        this.particles.push({
+        this.pushParticle({
           mesh: pMesh,
           velocity: new THREE.Vector3(
             (Math.random() - 0.5) * 11,
@@ -5841,7 +6132,8 @@ export class GameEngine {
       }
     } else if (type === 'flashbang') {
       soundEngine.playFlashbang();
-      for (let i = 0; i < 28; i++) {
+      const count = Math.max(6, Math.round(28 * scale));
+      for (let i = 0; i < count; i++) {
         const col = i % 2 === 0 ? '#ffffff' : '#bae6fd';
         const pMesh = new THREE.Mesh(
           new THREE.BoxGeometry(0.14, 0.14, 0.14),
@@ -5849,7 +6141,7 @@ export class GameEngine {
         );
         pMesh.position.copy(center);
         this.scene.add(pMesh);
-        this.particles.push({
+        this.pushParticle({
           mesh: pMesh,
           velocity: new THREE.Vector3(
             (Math.random() - 0.5) * 12,
@@ -5904,7 +6196,8 @@ export class GameEngine {
       }
     } else if (type === 'cryo') {
       soundEngine.playCryoExplosion();
-      for (let i = 0; i < 30; i++) {
+      const count = Math.max(6, Math.round(30 * scale));
+      for (let i = 0; i < count; i++) {
         const col = i % 2 === 0 ? '#67e8f9' : '#e0f2fe';
         const pMesh = new THREE.Mesh(
           new THREE.BoxGeometry(0.14, 0.14, 0.14),
@@ -5912,7 +6205,7 @@ export class GameEngine {
         );
         pMesh.position.copy(center);
         this.scene.add(pMesh);
-        this.particles.push({
+        this.pushParticle({
           mesh: pMesh,
           velocity: new THREE.Vector3(
             (Math.random() - 0.5) * 9,
@@ -5953,7 +6246,8 @@ export class GameEngine {
       }
     } else if (type === 'thermite') {
       soundEngine.playExplosion();
-      for (let i = 0; i < 26; i++) {
+      const count = Math.max(6, Math.round(26 * scale));
+      for (let i = 0; i < count; i++) {
         const col = i % 2 === 0 ? '#f97316' : '#facc15';
         const pMesh = new THREE.Mesh(
           new THREE.BoxGeometry(0.14, 0.14, 0.14),
@@ -5961,7 +6255,7 @@ export class GameEngine {
         );
         pMesh.position.copy(center);
         this.scene.add(pMesh);
-        this.particles.push({
+        this.pushParticle({
           mesh: pMesh,
           velocity: new THREE.Vector3(
             (Math.random() - 0.5) * 8,

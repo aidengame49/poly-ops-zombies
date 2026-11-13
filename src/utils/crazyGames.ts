@@ -12,6 +12,8 @@ export interface CrazyGamesGameSettings {
 
 type CrazyGamesEnvironment = 'crazygames' | 'local' | 'disabled';
 
+export type CrazyGamesInviteParams = Record<string, string> | string;
+
 interface CrazyGamesSDKv3 {
   init: () => Promise<void>;
   environment: CrazyGamesEnvironment;
@@ -31,8 +33,8 @@ interface CrazyGamesSDKv3 {
     clearGameContext?: () => void;
     updateRoom?: (room: { roomId: string; isJoinable?: boolean }) => void;
     leftRoom?: () => void;
-    addJoinRoomListener?: (listener: (roomId: string) => void) => void;
-    removeJoinRoomListener?: (listener: (roomId: string) => void) => void;
+    addJoinRoomListener?: (listener: (inviteParams: CrazyGamesInviteParams) => void) => void;
+    removeJoinRoomListener?: (listener: (inviteParams: CrazyGamesInviteParams) => void) => void;
     inviteLink?: (params: Record<string, string | number>) => string;
     getInviteParam?: (key: string) => string | null;
     showInviteButton?: (params: Record<string, string | number>) => string;
@@ -82,6 +84,8 @@ export const STORAGE_KEYS = {
   MP_NAME: 'polyops_mp_name',
   MP_SERVER: 'polyops_mp_server',
   DEVICE_MODE: 'polyops_device_mode',
+  DEVICE_CONFIRMED: 'polyops_device_confirmed',
+  OPTIMIZATION_MODE: 'polyops_optimization_mode',
 } as const;
 
 const CRAZYGAMES_HOST_REGEX = /(^|\.)(crazygames\.[a-z.]+|1001juegos\.com|gioco\.it|spele\.nl)$/i;
@@ -96,19 +100,25 @@ function isCrazyGamesUrl(urlOrHost: string): boolean {
   }
 }
 
-function getQueryFlags(): { isLocalQaParam: boolean; muteAudioParam: boolean; disableChatParam: boolean } {
+function getQueryFlags(): {
+  isLocalQaParam: boolean;
+  isStandaloneOverride: boolean;
+  muteAudioParam: boolean;
+  disableChatParam: boolean;
+} {
   if (typeof window === 'undefined') {
-    return { isLocalQaParam: false, muteAudioParam: false, disableChatParam: false };
+    return { isLocalQaParam: false, isStandaloneOverride: false, muteAudioParam: false, disableChatParam: false };
   }
   try {
     const params = new URLSearchParams(window.location.search);
     return {
       isLocalQaParam: params.get('useLocalSdk') === 'true',
+      isStandaloneOverride: params.get('standalone') === 'true',
       muteAudioParam: params.get('muteAudio') === 'true',
       disableChatParam: params.get('disableChat') === 'true',
     };
   } catch {
-    return { isLocalQaParam: false, muteAudioParam: false, disableChatParam: false };
+    return { isLocalQaParam: false, isStandaloneOverride: false, muteAudioParam: false, disableChatParam: false };
   }
 }
 
@@ -184,8 +194,9 @@ class CrazyGamesBridge {
     muteAudio: false,
   };
   private settingsChangeHandler: ((settings: CrazyGamesGameSettings) => void) | null = null;
-  private joinRoomHandler: ((roomId: string) => void) | null = null;
-  private joinRoomListeners = new Set<(roomId: string) => void>();
+  private joinRoomHandler: ((inviteParams: CrazyGamesInviteParams) => void) | null = null;
+  private joinRoomListeners = new Set<(roomId: string, params?: Record<string, string>) => void>();
+  private authListeners = new Set<(user: CrazyGamesUser | null) => void>();
   private lastAdTimestamp = 0;
   private stateListeners = new Set<() => void>();
 
@@ -229,14 +240,31 @@ class CrazyGamesBridge {
       const sdk = window.CrazyGames?.SDK;
       try {
         const param = sdk?.game?.getInviteParam?.('roomId') || sdk?.game?.inviteParams?.roomId;
-        if (param) return String(param);
+        if (param) return String(param).trim();
       } catch {
         // Ignore
       }
     }
     try {
       const urlParam = new URLSearchParams(window.location.search).get('roomId');
-      return urlParam || null;
+      return urlParam ? urlParam.trim() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  public getInviteParam(key: string): string | null {
+    if (this.active) {
+      const sdk = window.CrazyGames?.SDK;
+      try {
+        const param = sdk?.game?.getInviteParam?.(key) || sdk?.game?.inviteParams?.[key];
+        if (param) return String(param);
+      } catch {
+        // Ignore
+      }
+    }
+    try {
+      return new URLSearchParams(window.location.search).get(key);
     } catch {
       return null;
     }
@@ -256,9 +284,14 @@ class CrazyGamesBridge {
     return null;
   }
 
-  public subscribeJoinRoom(listener: (roomId: string) => void): () => void {
+  public subscribeJoinRoom(listener: (roomId: string, params?: Record<string, string>) => void): () => void {
     this.joinRoomListeners.add(listener);
     return () => this.joinRoomListeners.delete(listener);
+  }
+
+  public subscribeAuthChange(listener: (user: CrazyGamesUser | null) => void): () => void {
+    this.authListeners.add(listener);
+    return () => this.authListeners.delete(listener);
   }
 
   public subscribe(listener: () => void): () => void {
@@ -296,15 +329,16 @@ class CrazyGamesBridge {
   public async init(): Promise<void> {
     if (this.initialized) return;
 
-    const { isCrazyGamesSite, isLocalQaParam } = detectCrazyGamesContext();
+    const { isCrazyGamesSite } = detectCrazyGamesContext();
+    const { isLocalQaParam, isStandaloneOverride } = getQueryFlags();
     const sdk = typeof window !== 'undefined' ? window.CrazyGames?.SDK : undefined;
 
-    // Only activate CrazyGames SDK when on CrazyGames (direct/iframe) or explicit ?useLocalSdk=true QA mode
-    if (!sdk || (!isCrazyGamesSite && !isLocalQaParam)) {
+    if (!sdk || isStandaloneOverride) {
       this.active = false;
       this.environment = 'disabled';
       this.initialized = true;
       soundEngine.setPlatformMuted(false);
+      this.notifyListeners();
       return;
     }
 
@@ -312,19 +346,26 @@ class CrazyGamesBridge {
       await Promise.race([
         sdk.init(),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('CrazyGames SDK init timed out')), 6000)
+          setTimeout(() => reject(new Error('CrazyGames SDK init timed out')), 4500)
         ),
       ]);
       this.environment = sdk.environment || 'disabled';
 
-      // Enforce domain restriction: never run SDK calls if SDK itself reports 'disabled'
-      // and never treat plain localhost/non-CG site as CrazyGames unless on CG site or ?useLocalSdk=true
-      if (this.environment === 'crazygames' || (this.environment === 'local' && (isCrazyGamesSite || isLocalQaParam))) {
+      // Strictly separate CrazyGames Mode (environment === 'crazygames' | 'local')
+      // from Standalone Mode (environment === 'disabled' or SDK unavailable).
+      const isCgEnv =
+        this.environment === 'crazygames' ||
+        this.environment === 'local' ||
+        (isLocalQaParam && (isCrazyGamesSite || typeof sdk.init === 'function'));
+
+      if (isCgEnv) {
         this.active = true;
       } else {
         this.active = false;
+        this.environment = 'disabled';
         this.initialized = true;
         soundEngine.setPlatformMuted(false);
+        this.notifyListeners();
         return;
       }
 
@@ -350,7 +391,7 @@ class CrazyGamesBridge {
         }
       }
 
-      // Fetch user & listen for sign-ins (so cloud Data Module sync updates game state automatically)
+      // Fetch user & listen for sign-ins (updates game state & multiplayer username automatically)
       if (sdk.user) {
         try {
           if (sdk.user.isUserAccountAvailable && typeof sdk.user.getUser === 'function') {
@@ -359,6 +400,13 @@ class CrazyGamesBridge {
           if (typeof sdk.user.addAuthListener === 'function') {
             sdk.user.addAuthListener((user) => {
               this.currentUser = user;
+              this.authListeners.forEach((fn) => {
+                try {
+                  fn(user);
+                } catch {
+                  // Ignore
+                }
+              });
               this.notifyListeners();
             });
           }
@@ -367,13 +415,21 @@ class CrazyGamesBridge {
         }
       }
 
-      // Listen for CrazyGames mid-session room invite joins
+      // Listen for CrazyGames hot-join room invites (handles both SDK v3 { roomId } object and string)
       if (typeof sdk.game?.addJoinRoomListener === 'function') {
-        this.joinRoomHandler = (roomId: string) => {
+        this.joinRoomHandler = (inviteParams: CrazyGamesInviteParams) => {
+          const roomId =
+            typeof inviteParams === 'string'
+              ? inviteParams.trim()
+              : inviteParams && typeof inviteParams === 'object' && inviteParams.roomId
+              ? String(inviteParams.roomId).trim()
+              : '';
           if (!roomId) return;
+          const extraParams =
+            inviteParams && typeof inviteParams === 'object' ? inviteParams : undefined;
           this.joinRoomListeners.forEach((fn) => {
             try {
-              fn(roomId);
+              fn(roomId, extraParams);
             } catch (e) {
               console.warn('CrazyGames joinRoom listener error:', e);
             }

@@ -131,6 +131,10 @@ export type ClientToServerMessage =
       displayName: string;
     }
   | {
+      type: 'profile:syncCrazyGames';
+      crazyGamesUsername: string | null;
+    }
+  | {
       type: 'friend:sendRequest';
       targetPlayerId: string;
     }
@@ -193,6 +197,9 @@ export type ClientToServerMessage =
     }
   | {
       type: 'room:restart';
+    }
+  | {
+      type: 'room:returnToLobby';
     }
   | {
       type: 'player:transform';
@@ -286,6 +293,11 @@ export type ServerToClientMessage =
   | {
       type: 'room:state';
       room: MultiplayerRoomState | null;
+    }
+  | {
+      type: 'room:unavailable';
+      reason: 'not_found' | 'full' | 'in_progress' | 'ended';
+      message: string;
     }
   | {
       type: 'room:matchStarted';

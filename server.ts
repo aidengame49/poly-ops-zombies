@@ -100,10 +100,21 @@ function generateUniqueNumericPlayerId(): string {
   return String(Date.now()).slice(-8);
 }
 
+const PROFANITY_REGEX = /\b(fuck|shit|bitch|asshole|bastard|cunt|dick|cock|pussy|whore|slut|fag|faggot|nigger|nigga|retard|kike|spic|chink|twat|wanker)\b/gi;
+
+function censorProfanity(text: string): string {
+  return text.replace(PROFANITY_REGEX, (m) => '*'.repeat(m.length));
+}
+
 function sanitizeDisplayName(name: string | undefined | null, fallbackId: string): string {
-  const cleaned = (name || '').replace(/[^\w \-.]/g, '').trim().slice(0, 20);
+  const cleaned = censorProfanity((name || '').replace(/[^\w \-.]/g, '').trim()).slice(0, 20);
   if (cleaned.length >= 2) return cleaned;
   return `Operator #${fallbackId.slice(-4)}`;
+}
+
+function sanitizeMapName(name: string | undefined | null): string {
+  const cleaned = censorProfanity((name || '').replace(/[<>]/g, '').trim()).slice(0, 40);
+  return cleaned || 'Custom Arena';
 }
 
 function getOrCreateProfile(
@@ -112,7 +123,8 @@ function getOrCreateProfile(
   crazyGamesUsername?: string | null
 ): StoredProfile {
   const cleanToken = (authToken || '').trim().slice(0, 128) || `anon_${Math.random().toString(36).slice(2)}`;
-  const cgKey = crazyGamesUsername ? crazyGamesUsername.trim().toLowerCase() : null;
+  const cgClean = crazyGamesUsername ? crazyGamesUsername.trim() : null;
+  const cgKey = cgClean ? cgClean.toLowerCase() : null;
 
   let existingId = socialDb.tokenToId[cleanToken];
   if (!existingId && cgKey && socialDb.cgNameToId[cgKey]) {
@@ -122,11 +134,11 @@ function getOrCreateProfile(
 
   if (existingId && socialDb.profilesById[existingId]) {
     const profile = socialDb.profilesById[existingId];
-    if (crazyGamesUsername && !profile.crazyGamesUsername) {
-      profile.crazyGamesUsername = crazyGamesUsername;
+    if (cgClean) {
+      profile.crazyGamesUsername = cgClean;
       if (cgKey) socialDb.cgNameToId[cgKey] = existingId;
-    }
-    if (requestedName && requestedName.trim().length >= 2 && profile.displayName.startsWith('Operator #')) {
+      profile.displayName = sanitizeDisplayName(cgClean, profile.playerId);
+    } else if (requestedName && requestedName.trim().length >= 2 && profile.displayName.startsWith('Operator #')) {
       profile.displayName = sanitizeDisplayName(requestedName, profile.playerId);
     }
     scheduleSaveDb();
@@ -287,7 +299,7 @@ function serializeRoom(room: RoomInternal): MultiplayerRoomState {
     roomId: room.roomId,
     hostPlayerId: room.hostPlayerId,
     isPublic: room.isPublic,
-    isJoinable: room.isJoinable && room.members.size < 4,
+    isJoinable: room.status === 'lobby' && room.isJoinable && room.members.size < 4,
     status: room.status,
     mapId: room.mapId,
     mapName: room.mapName,
@@ -440,6 +452,9 @@ function leaveCurrentRoom(sess: ClientSession) {
   if (room.members.size === 0) {
     rooms.delete(room.roomId);
   } else {
+    if (room.status === 'lobby') {
+      room.isJoinable = room.members.size < 4;
+    }
     if (room.hostPlayerId === leavingId) {
       const nextHost = room.members.values().next().value;
       if (nextHost) {
@@ -919,6 +934,29 @@ async function bootstrap() {
           break;
         }
 
+        case 'profile:syncCrazyGames': {
+          const cgName = msg.crazyGamesUsername ? msg.crazyGamesUsername.trim() : null;
+          if (cgName) {
+            myProfile.crazyGamesUsername = cgName;
+            socialDb.cgNameToId[cgName.toLowerCase()] = myProfile.playerId;
+            myProfile.displayName = sanitizeDisplayName(cgName, myProfile.playerId);
+          } else {
+            myProfile.crazyGamesUsername = null;
+          }
+          scheduleSaveDb();
+          if (sess.roomId) {
+            const room = rooms.get(sess.roomId);
+            const member = room?.members.get(myProfile.playerId);
+            if (room && member) {
+              member.displayName = myProfile.displayName;
+              broadcastToRoom(room, { type: 'room:state', room: serializeRoom(room) });
+            }
+          }
+          pushSocialSync(myProfile.playerId);
+          notifyFriendsPresenceChanged(myProfile.playerId);
+          break;
+        }
+
         case 'friend:sendRequest': {
           const targetId = (msg.targetPlayerId || '').replace(/\D/g, '');
           if (!targetId) {
@@ -1053,7 +1091,7 @@ async function bootstrap() {
             isJoinable: true,
             status: 'lobby',
             mapId: msg.mapId || OFFICIAL_SECTOR_ZERO_ID,
-            mapName: msg.mapName || 'Sector Zero',
+            mapName: sanitizeMapName(msg.mapName || 'Sector Zero'),
             customMapConfig: msg.customMapConfig,
             round: 1,
             isRoundBreak: true,
@@ -1083,32 +1121,42 @@ async function bootstrap() {
             rooms.get(cleanCode) ||
             rooms.get(cleanCode.toUpperCase());
           if (!targetRoom) {
-            sendNotice(ws, 'error', `Room "${cleanCode}" was not found.`);
+            const msgText = `Room "${cleanCode}" was not found or has already closed.`;
+            sendMsg(ws, { type: 'room:unavailable', reason: 'not_found', message: msgText });
+            sendNotice(ws, 'error', msgText);
+            return;
+          }
+          if (targetRoom.members.has(myProfile.playerId)) {
+            sendMsg(ws, { type: 'room:state', room: serializeRoom(targetRoom) });
             return;
           }
           if (targetRoom.members.size >= 4) {
-            sendNotice(ws, 'error', 'That squad room is full (4/4 players).');
+            const msgText = 'That squad room is already full (4/4 operators).';
+            sendMsg(ws, { type: 'room:unavailable', reason: 'full', message: msgText });
+            sendNotice(ws, 'error', msgText);
             return;
           }
-          if (!targetRoom.isJoinable && targetRoom.status === 'gameover') {
-            sendNotice(ws, 'error', 'That match has already ended.');
+          if (targetRoom.status === 'playing') {
+            const msgText = 'That match is already in progress. Please join another room or start a new squad.';
+            sendMsg(ws, { type: 'room:unavailable', reason: 'in_progress', message: msgText });
+            sendNotice(ws, 'error', msgText);
+            return;
+          }
+          if (!targetRoom.isJoinable || targetRoom.status === 'gameover') {
+            const msgText = 'That squad room is currently closed or has already ended.';
+            sendMsg(ws, { type: 'room:unavailable', reason: 'ended', message: msgText });
+            sendNotice(ws, 'error', msgText);
             return;
           }
           leaveCurrentRoom(sess);
           if (msg.loadout) sess.loadout = msg.loadout;
           const member = createMemberEntry(myProfile, false, sess.loadout, targetRoom.members.size);
           targetRoom.members.set(myProfile.playerId, member);
+          targetRoom.isJoinable = targetRoom.members.size < 4;
           sess.roomId = targetRoom.roomId;
 
           const serialized = serializeRoom(targetRoom);
           broadcastToRoom(targetRoom, { type: 'room:state', room: serialized });
-          if (targetRoom.status === 'playing') {
-            sendMsg(ws, {
-              type: 'room:matchStarted',
-              room: serialized,
-              zombies: targetRoom.zombies,
-            });
-          }
           notifyRoomMembersPresence(targetRoom);
           break;
         }
@@ -1118,7 +1166,7 @@ async function bootstrap() {
           if (msg.loadout) sess.loadout = msg.loadout;
           let openRoom: RoomInternal | null = null;
           for (const candidate of rooms.values()) {
-            if (candidate.isPublic && candidate.isJoinable && candidate.members.size < 4 && candidate.status !== 'gameover') {
+            if (candidate.isPublic && candidate.isJoinable && candidate.status === 'lobby' && candidate.members.size < 4) {
               openRoom = candidate;
               break;
             }
@@ -1126,16 +1174,10 @@ async function bootstrap() {
           if (openRoom) {
             const member = createMemberEntry(myProfile, false, sess.loadout, openRoom.members.size);
             openRoom.members.set(myProfile.playerId, member);
+            openRoom.isJoinable = openRoom.members.size < 4;
             sess.roomId = openRoom.roomId;
             const serialized = serializeRoom(openRoom);
             broadcastToRoom(openRoom, { type: 'room:state', room: serialized });
-            if (openRoom.status === 'playing') {
-              sendMsg(ws, {
-                type: 'room:matchStarted',
-                room: serialized,
-                zombies: openRoom.zombies,
-              });
-            }
             notifyRoomMembersPresence(openRoom);
           } else {
             const roomId = generateRoomCode();
@@ -1147,7 +1189,7 @@ async function bootstrap() {
               isJoinable: true,
               status: 'lobby',
               mapId: msg.mapId || OFFICIAL_SECTOR_ZERO_ID,
-              mapName: msg.mapName || 'Sector Zero',
+              mapName: sanitizeMapName(msg.mapName || 'Sector Zero'),
               customMapConfig: msg.customMapConfig,
               round: 1,
               isRoundBreak: true,
@@ -1205,8 +1247,25 @@ async function bootstrap() {
           const room = sess.roomId ? rooms.get(sess.roomId) : undefined;
           if (!room || room.hostPlayerId !== myProfile.playerId || room.status === 'playing') return;
           room.mapId = msg.mapId;
-          room.mapName = msg.mapName;
+          room.mapName = sanitizeMapName(msg.mapName);
           room.customMapConfig = msg.customMapConfig;
+          broadcastToRoom(room, { type: 'room:state', room: serializeRoom(room) });
+          notifyRoomMembersPresence(room);
+          break;
+        }
+
+        case 'room:returnToLobby': {
+          const room = sess.roomId ? rooms.get(sess.roomId) : undefined;
+          if (!room || room.hostPlayerId !== myProfile.playerId) return;
+          room.status = 'lobby';
+          room.isJoinable = room.members.size < 4;
+          room.zombies = [];
+          for (const m of room.members.values()) {
+            m.isDowned = false;
+            m.hp = 100;
+            m.maxHp = 100;
+            m.ready = m.playerId === room.hostPlayerId;
+          }
           broadcastToRoom(room, { type: 'room:state', room: serializeRoom(room) });
           notifyRoomMembersPresence(room);
           break;
@@ -1241,7 +1300,7 @@ async function bootstrap() {
           room.zombieWalkCycles.clear();
           room.explodedBarrelIds.clear();
           room.status = 'playing';
-          room.isJoinable = room.members.size < 4;
+          room.isJoinable = false;
 
           let idx = 0;
           for (const m of room.members.values()) {

@@ -27,7 +27,9 @@ export default function App() {
     if (!sdkReady || !mountRef.current) return;
 
     const gameEngine = new GameEngine(mountRef.current);
-    gameEngine.setDeviceMode(deviceManager.getState().effectiveMode);
+    const initialDevState = deviceManager.getState();
+    gameEngine.setDeviceMode(initialDevState.effectiveMode);
+    gameEngine.setOptimizationProfile(initialDevState.effectiveOptimization);
     setEngine(gameEngine);
     crazyGames.finishLoading();
 
@@ -38,6 +40,7 @@ export default function App() {
 
     const unsubscribeDevice = deviceManager.subscribe((devState) => {
       gameEngine.setDeviceMode(devState.effectiveMode);
+      gameEngine.setOptimizationProfile(devState.effectiveOptimization);
     });
 
     return () => {

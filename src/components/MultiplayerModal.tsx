@@ -196,6 +196,8 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
   const myMember = currentRoom?.members.find((m) => m.playerId === profile?.playerId) || null;
   const isHost = Boolean(currentRoom && profile && currentRoom.hostPlayerId === profile.playerId);
   const inviteUrl = currentRoom ? crazyGames.getInviteLink(currentRoom.roomId) : '';
+  const isCgMode = crazyGames.isActive;
+  const cgUser = crazyGames.user;
 
   return (
     <div
@@ -212,7 +214,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
             </div>
             <div>
               <h2 className="text-lg sm:text-2xl font-extrabold text-white tracking-wider leading-none">
-                CO-OP MULTIPLAYER &amp; FRIENDS
+                {isCgMode ? 'CO-OP MULTIPLAYER' : 'CO-OP MULTIPLAYER & FRIENDS'}
               </h2>
               <p className="text-[11px] sm:text-xs text-slate-400 font-semibold tracking-wider mt-1 flex items-center gap-2">
                 <span
@@ -225,24 +227,34 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                   }`}
                 />
                 {connStatus === 'connected'
-                  ? crazyGames.isActive
+                  ? isCgMode
                     ? 'CrazyGames Multiplayer Network Online'
                     : 'Poly-Ops Co-Op Network Online'
                   : connStatus === 'connecting'
                   ? 'Connecting to Multiplayer Server...'
-                  : 'Server Disconnected — Check Connection'}
+                  : 'Disconnected — Click Reconnect'}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowServerConfig((v) => !v)}
-              className="min-h-[40px] px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded-xl text-xs font-bold tracking-wider flex items-center gap-1.5 cursor-pointer"
-              title="Configure External Multiplayer Server URL"
-            >
-              <Server className="w-3.5 h-3.5 text-cyan-400" /> SERVER
-            </button>
+            {(connStatus === 'disconnected' || connStatus === 'error') && (
+              <button
+                onClick={() => multiplayerClient.connect(true)}
+                className="min-h-[40px] px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-slate-950 rounded-xl text-xs font-extrabold tracking-wider flex items-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" /> RECONNECT
+              </button>
+            )}
+            {!isCgMode && (
+              <button
+                onClick={() => setShowServerConfig((v) => !v)}
+                className="min-h-[40px] px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded-xl text-xs font-bold tracking-wider flex items-center gap-1.5 cursor-pointer"
+                title="Configure External Multiplayer Server URL"
+              >
+                <Server className="w-3.5 h-3.5 text-cyan-400" /> SERVER
+              </button>
+            )}
             <button
               onClick={onClose}
               className="min-h-[40px] min-w-[40px] p-2 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl transition-all flex items-center justify-center cursor-pointer"
@@ -252,8 +264,8 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
           </div>
         </div>
 
-        {/* Optional Server Override Bar */}
-        {showServerConfig && (
+        {/* Optional Server Override Bar (Standalone Mode Only) */}
+        {!isCgMode && showServerConfig && (
           <div className="bg-slate-950/90 border-b border-slate-800 px-4 sm:px-6 py-2.5 flex flex-wrap items-center gap-2.5 shrink-0">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
               Server URL (optional for static CDN builds):
@@ -289,70 +301,94 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
         <div className="flex-1 overflow-y-auto">
           {/* Player Identity Card + Notice */}
           <div className="bg-slate-900/90 border-b border-slate-800 px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-3 sm:gap-4">
-              {/* Assigned Numeric Player ID */}
-              <div className="bg-slate-950 border border-cyan-500/40 rounded-xl px-3.5 py-2 flex items-center gap-3">
+            {isCgMode ? (
+              <div className="flex items-center gap-3">
+                {cgUser?.profilePictureUrl ? (
+                  <img
+                    src={cgUser.profilePictureUrl}
+                    alt={cgUser.username}
+                    className="w-10 h-10 rounded-xl border border-cyan-500/50 object-cover"
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-xl bg-cyan-500/15 border border-cyan-500/40 flex items-center justify-center text-cyan-300 font-black text-base">
+                    CG
+                  </div>
+                )}
                 <div>
-                  <div className="text-[10px] font-bold tracking-widest text-cyan-400 uppercase">YOUR PLAYER ID</div>
-                  <div className="text-xl sm:text-2xl font-black tracking-widest text-white font-mono">
-                    {profile ? `#${profile.playerId}` : '--------'}
+                  <div className="text-[10px] font-bold tracking-widest text-cyan-400 uppercase">
+                    {cgUser ? 'CRAZYGAMES OPERATOR' : 'GUEST OPERATOR'}
+                  </div>
+                  <div className="text-base sm:text-lg font-extrabold text-white tracking-wide">
+                    {cgUser?.username || profile?.displayName || 'Connecting...'}
                   </div>
                 </div>
-                {profile && (
-                  <button
-                    onClick={() => copyText('playerId', profile.playerId)}
-                    className="px-2.5 py-1.5 bg-cyan-500/15 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-300 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer"
-                  >
-                    {copiedKey === 'playerId' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    {copiedKey === 'playerId' ? 'COPIED' : 'COPY ID'}
-                  </button>
-                )}
               </div>
-
-              {/* Editable Display Name */}
-              <div>
-                <div className="text-[10px] font-bold tracking-widest text-slate-400 uppercase mb-0.5">CALLSIGN</div>
-                {editingName ? (
-                  <form onSubmit={handleSaveName} className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      maxLength={20}
-                      value={nameInput}
-                      onChange={(e) => setNameInput(e.target.value)}
-                      className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-sm font-bold text-white focus:outline-none focus:border-cyan-500"
-                      autoFocus
-                    />
-                    <button
-                      type="submit"
-                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold rounded-lg cursor-pointer"
-                    >
-                      SAVE
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setEditingName(false)}
-                      className="px-2 py-1 bg-slate-800 text-slate-300 text-xs font-bold rounded-lg cursor-pointer"
-                    >
-                      CANCEL
-                    </button>
-                  </form>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <span className="text-base sm:text-lg font-extrabold text-white tracking-wide">
-                      {profile?.displayName || 'Connecting...'}
-                    </span>
-                    {profile && (
-                      <button
-                        onClick={() => setEditingName(true)}
-                        className="text-xs font-bold text-cyan-400 hover:text-cyan-300 underline cursor-pointer"
-                      >
-                        Rename
-                      </button>
-                    )}
+            ) : (
+              <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+                {/* Assigned Numeric Player ID (Standalone Mode) */}
+                <div className="bg-slate-950 border border-cyan-500/40 rounded-xl px-3.5 py-2 flex items-center gap-3">
+                  <div>
+                    <div className="text-[10px] font-bold tracking-widest text-cyan-400 uppercase">YOUR PLAYER ID</div>
+                    <div className="text-xl sm:text-2xl font-black tracking-widest text-white font-mono">
+                      {profile ? `#${profile.playerId}` : '--------'}
+                    </div>
                   </div>
-                )}
+                  {profile && (
+                    <button
+                      onClick={() => copyText('playerId', profile.playerId)}
+                      className="px-2.5 py-1.5 bg-cyan-500/15 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-300 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      {copiedKey === 'playerId' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      {copiedKey === 'playerId' ? 'COPIED' : 'COPY ID'}
+                    </button>
+                  )}
+                </div>
+
+                {/* Editable Display Name (Standalone Mode) */}
+                <div>
+                  <div className="text-[10px] font-bold tracking-widest text-slate-400 uppercase mb-0.5">CALLSIGN</div>
+                  {editingName ? (
+                    <form onSubmit={handleSaveName} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        maxLength={20}
+                        value={nameInput}
+                        onChange={(e) => setNameInput(e.target.value)}
+                        className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-sm font-bold text-white focus:outline-none focus:border-cyan-500"
+                        autoFocus
+                      />
+                      <button
+                        type="submit"
+                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold rounded-lg cursor-pointer"
+                      >
+                        SAVE
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingName(false)}
+                        className="px-2 py-1 bg-slate-800 text-slate-300 text-xs font-bold rounded-lg cursor-pointer"
+                      >
+                        CANCEL
+                      </button>
+                    </form>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="text-base sm:text-lg font-extrabold text-white tracking-wide">
+                        {profile?.displayName || 'Connecting...'}
+                      </span>
+                      {profile && (
+                        <button
+                          onClick={() => setEditingName(true)}
+                          className="text-xs font-bold text-cyan-400 hover:text-cyan-300 underline cursor-pointer"
+                        >
+                          Rename
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
             {lastNotice && (
               <div
@@ -377,10 +413,10 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
 
           {/* Main Split Content */}
           <div className="p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-5">
-            {/* LEFT COLUMN (7 cols): Co-Op Squad Lobby / Matchmaking */}
-            <div className="lg:col-span-7 flex flex-col gap-4">
-              {/* Incoming Room Invites */}
-              {roomInvites.length > 0 && (
+            {/* LEFT COLUMN (12 cols in CrazyGames Mode, 7 cols in Standalone Mode) */}
+            <div className={`${isCgMode ? 'lg:col-span-12' : 'lg:col-span-7'} flex flex-col gap-4`}>
+              {/* Incoming Room Invites (Standalone Mode) */}
+              {!isCgMode && roomInvites.length > 0 && (
                 <div className="bg-amber-950/40 border border-amber-500/60 rounded-xl p-4 space-y-2.5">
                   <div className="text-xs font-extrabold tracking-widest text-amber-400 uppercase flex items-center gap-2">
                     <Zap className="w-4 h-4" /> SQUAD INVITES RECEIVED
@@ -601,9 +637,11 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                         return (
                           <div
                             key={`empty_${idx}`}
-                            className="border border-dashed border-slate-800 bg-slate-900/30 rounded-xl p-3.5 flex items-center justify-center text-xs font-bold text-slate-500 tracking-wider"
+                            className="border border-dashed border-slate-800 bg-slate-900/30 rounded-xl p-3.5 flex items-center justify-center text-xs font-bold text-slate-500 tracking-wider text-center"
                           >
-                            OPEN SLOT — INVITE BY PLAYER ID
+                            {isCgMode
+                              ? 'OPEN SLOT — USE CRAZYGAMES INVITE OR SHARE LINK'
+                              : 'OPEN SLOT — INVITE BY PLAYER ID'}
                           </div>
                         );
                       }
@@ -625,7 +663,9 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                                 {member.displayName} {isMe ? '(YOU)' : ''}
                               </span>
                             </div>
-                            <div className="text-[11px] font-mono text-cyan-400">ID #{member.playerId}</div>
+                            {!isCgMode && (
+                              <div className="text-[11px] font-mono text-cyan-400">ID #{member.playerId}</div>
+                            )}
                             <div className="text-[11px] text-slate-400 font-semibold mt-0.5 truncate">
                               {pistolName} · {grenadeName}
                             </div>
@@ -654,8 +694,8 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                       <LogOut className="w-4 h-4" /> LEAVE ROOM
                     </button>
 
-                    <div className="flex items-center gap-2.5">
-                      {!isHost && myMember && (
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      {!isHost && myMember && currentRoom.status === 'lobby' && (
                         <button
                           onClick={() => multiplayerClient.setReady(!myMember.ready)}
                           className={`min-h-[44px] px-5 py-2 font-extrabold rounded-xl text-sm flex items-center gap-2 cursor-pointer ${
@@ -665,6 +705,15 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                           }`}
                         >
                           <UserCheck className="w-4 h-4" /> {myMember.ready ? 'UNREADY' : 'READY UP'}
+                        </button>
+                      )}
+
+                      {isHost && currentRoom.status === 'gameover' && (
+                        <button
+                          onClick={() => multiplayerClient.returnRoomToLobby()}
+                          className="min-h-[44px] px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-cyan-300 font-bold rounded-xl text-sm flex items-center gap-2 cursor-pointer"
+                        >
+                          RE-OPEN LOBBY
                         </button>
                       )}
 
@@ -694,7 +743,8 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
               )}
             </div>
 
-            {/* RIGHT COLUMN (5 cols): Numeric Player ID Friends System */}
+            {/* RIGHT COLUMN (5 cols): Numeric Player ID Friends System (Standalone Mode Only) */}
+            {!isCgMode && (
             <div className="lg:col-span-5 bg-slate-950/70 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -862,6 +912,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                 )}
               </div>
             </div>
+            )}
           </div>
         </div>
       </div>

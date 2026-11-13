@@ -36,11 +36,13 @@ import {
   Copy,
   Check,
   HeartPulse,
+  AlertTriangle,
+  Gauge,
 } from 'lucide-react';
 import { soundEngine } from '../utils/soundEngine';
 import { crazyGames, gameStorage, STORAGE_KEYS } from '../utils/crazyGames';
 import { multiplayerClient } from '../utils/multiplayerClient';
-import { deviceManager, type DeviceModePreference, type DeviceState } from '../utils/deviceMode';
+import { deviceManager, OPTIMIZATION_SPECS, type DeviceMode, type DeviceModePreference, type DeviceState } from '../utils/deviceMode';
 import type { CoopMemberState } from '../types/multiplayer';
 
 function loadSavedLoadout(): PlayerLoadout {
@@ -183,6 +185,8 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
     const unsubJoinRoom = crazyGames.subscribeJoinRoom((roomId) => {
       if (engine.isMapLoaded) {
         engine.resetToMainMenu();
+      } else if (multiplayerClient.currentRoom) {
+        multiplayerClient.leaveRoom();
       }
       setActiveModal('multiplayer');
       multiplayerClient.joinRoom(roomId);
@@ -196,9 +200,10 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
         multiplayerClient.joinRoom(inviteRoom);
       } else if (crazyGames.isInstantMultiplayer) {
         setActiveModal('multiplayer');
-        multiplayerClient.quickPlay({
+        multiplayerClient.createRoom({
           mapId: selectedMapConfig.id,
           mapName: selectedMapConfig.name,
+          isPublic: false,
         });
       }
     }
@@ -385,8 +390,111 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
     { id: 'tablet', label: 'TABLET' },
   ];
 
+  const STARTUP_DEVICE_CARDS: {
+    mode: DeviceMode;
+    title: string;
+    optBadge: string;
+    controlsDesc: string;
+    optDesc: string;
+    icon: React.ReactNode;
+    accentBorder: string;
+  }[] = [
+    {
+      mode: 'phone',
+      title: 'PHONE',
+      optBadge: OPTIMIZATION_SPECS.phone_performance.shortLabel,
+      controlsDesc: 'Landscape Touch Joysticks',
+      optDesc: '0.9x scale, shadows off & tuned particle budget for smooth 60 FPS.',
+      icon: <Smartphone className="w-7 h-7 text-emerald-400" />,
+      accentBorder: 'hover:border-emerald-400/80 hover:bg-emerald-950/30',
+    },
+    {
+      mode: 'tablet',
+      title: 'TABLET',
+      optBadge: OPTIMIZATION_SPECS.tablet_balanced.shortLabel,
+      controlsDesc: 'Touch Controls (Any Orientation)',
+      optDesc: '1.25x scale, fast shadows & balanced dynamic lighting.',
+      icon: <Tablet className="w-7 h-7 text-amber-400" />,
+      accentBorder: 'hover:border-amber-400/80 hover:bg-amber-950/30',
+    },
+    {
+      mode: 'computer',
+      title: 'COMPUTER',
+      optBadge: OPTIMIZATION_SPECS.desktop_quality.shortLabel,
+      controlsDesc: 'Mouse & Keyboard',
+      optDesc: 'Up to 2.0x scale, soft shadows, studio IBL & full lighting.',
+      icon: <Monitor className="w-7 h-7 text-cyan-400" />,
+      accentBorder: 'hover:border-cyan-400/80 hover:bg-cyan-950/30',
+    },
+  ];
+
   return (
     <div className="absolute inset-0 pointer-events-none select-none overflow-hidden font-['Rajdhani',sans-serif]">
+      {/* STARTUP DEVICE PROMPT (Shown on load when device hardware cannot be confidently identified) */}
+      {deviceState.needsDevicePrompt && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          className="fixed inset-0 z-[220] bg-slate-950/98 backdrop-blur-xl flex items-center justify-center p-4 sm:p-6 pointer-events-auto overflow-y-auto"
+        >
+          <div className="max-w-3xl w-full bg-slate-900/95 border border-cyan-500/50 rounded-3xl p-5 sm:p-8 shadow-[0_0_60px_rgba(6,182,212,0.28)]">
+            <div className="text-center mb-5 sm:mb-6">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/15 border border-cyan-400/40 text-cyan-300 text-xs font-extrabold tracking-widest uppercase mb-3">
+                <Gauge className="w-3.5 h-3.5" /> DEVICE &amp; OPTIMIZATION SETUP
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-wider uppercase">
+                What device are you playing on?
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-300 mt-1.5 max-w-xl mx-auto leading-relaxed">
+                We could not confidently auto-detect your hardware (tentative guess:{' '}
+                <strong className="text-cyan-300 uppercase">{deviceState.detectedMode}</strong>). Select your device below to apply the best controls and graphics optimization mode.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+              {STARTUP_DEVICE_CARDS.map((card) => {
+                const isGuess = deviceState.detectedMode === card.mode;
+                return (
+                  <button
+                    key={card.mode}
+                    type="button"
+                    onClick={() => deviceManager.confirmStartupDevice(card.mode)}
+                    className={`text-left bg-slate-950/90 border rounded-2xl p-4 sm:p-5 flex flex-col gap-2.5 transition-all cursor-pointer active:scale-[0.98] ${
+                      isGuess ? 'border-cyan-400/70 shadow-[0_0_24px_rgba(34,211,238,0.18)]' : 'border-slate-800'
+                    } ${card.accentBorder}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="w-12 h-12 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center">
+                        {card.icon}
+                      </div>
+                      <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] font-extrabold tracking-wider text-emerald-300">
+                        {card.optBadge}
+                      </span>
+                    </div>
+                    <div>
+                      <div className="text-lg font-extrabold text-white tracking-wider flex items-center gap-2">
+                        {card.title}
+                        {isGuess && (
+                          <span className="text-[10px] font-bold text-cyan-300 uppercase tracking-wider">
+                            (SUGGESTED)
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs font-bold text-cyan-300 mt-0.5">{card.controlsDesc}</div>
+                    </div>
+                    <p className="text-xs text-slate-400 leading-snug">{card.optDesc}</p>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 text-center text-[11px] text-slate-500 font-semibold">
+              You can swap Device Mode or Optimization Mode anytime in Settings or on the Main Menu.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* PHONE-ONLY LANDSCAPE ROTATION GATE */}
       {deviceState.needsLandscapeRotation && (
         <div
@@ -511,19 +619,65 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
         <WeaponsLoadoutModal
           currentLoadout={playerLoadout}
           onSaveLoadout={handleSaveLoadout}
-          onClose={() => setActiveModal('main_menu')}
+          onClose={() => setActiveModal(multiplayerClient.currentRoom ? 'multiplayer' : 'main_menu')}
         />
       )}
 
-      {/* Co-Op Multiplayer & Friends Modal */}
+      {/* Co-Op Multiplayer Modal */}
       {activeModal === 'multiplayer' && (
         <MultiplayerModal
           selectedMapConfig={selectedMapConfig}
           playerLoadout={playerLoadout}
           onUpdateMapSelection={(config) => setSelectedMapConfig(config)}
           onOpenLoadout={() => setActiveModal('loadout')}
-          onClose={() => setActiveModal('main_menu')}
+          onClose={() => {
+            if (multiplayerClient.currentRoom) {
+              multiplayerClient.leaveRoom();
+            }
+            setActiveModal('main_menu');
+          }}
         />
+      )}
+
+      {/* Unavailable / Full / In-Progress Room Popup Modal */}
+      {multiplayerClient.unavailableModal && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[210] flex items-center justify-center p-4 pointer-events-auto"
+        >
+          <div className="max-w-md w-full bg-slate-900 border border-amber-500/60 rounded-2xl p-6 text-center shadow-[0_0_50px_rgba(245,158,11,0.3)]">
+            <div className="w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-500/40 flex items-center justify-center mx-auto mb-4 text-amber-400">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <h3 className="text-2xl font-extrabold text-white tracking-wider uppercase">
+              {multiplayerClient.unavailableModal.title}
+            </h3>
+            <p className="text-sm text-slate-300 mt-2 leading-relaxed">
+              {multiplayerClient.unavailableModal.message}
+            </p>
+            <div className="mt-6 flex flex-col sm:flex-row gap-2.5">
+              <button
+                onClick={() => {
+                  multiplayerClient.dismissUnavailableModal();
+                  setActiveModal('multiplayer');
+                }}
+                className="flex-1 min-h-[44px] bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-extrabold rounded-xl text-sm tracking-wider cursor-pointer"
+              >
+                OPEN CO-OP LOBBY
+              </button>
+              <button
+                onClick={() => {
+                  multiplayerClient.dismissUnavailableModal();
+                  setActiveModal('main_menu');
+                }}
+                className="flex-1 min-h-[44px] bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold rounded-xl text-sm tracking-wider cursor-pointer"
+              >
+                MAIN MENU
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Flashbang Concussive Whiteout Glare Overlay */}
@@ -852,6 +1006,13 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
             </div>
           )}
 
+          {/* Desktop Non-Locked Aim Hint (especially helpful for Squad Members joining live launch) */}
+          {!isTouchMode && !gameState.isPointerLocked && !gameState.isPaused && (
+            <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20 bg-slate-950/90 border border-cyan-500/60 text-cyan-300 px-5 py-2 rounded-xl shadow-[0_0_20px_rgba(6,182,212,0.3)] text-xs sm:text-sm font-extrabold tracking-widest uppercase animate-pulse">
+              CLICK BATTLEFIELD TO LOCK AIM &amp; FIRE
+            </div>
+          )}
+
           {/* Downed Overlay Banner (Co-Op) */}
           {gameState.isMultiplayer && gameState.isDowned && (
             <div className="absolute top-[28%] left-1/2 -translate-x-1/2 z-20 bg-red-950/90 border border-red-500 text-red-100 px-5 py-2.5 rounded-xl shadow-[0_0_25px_rgba(220,38,38,0.6)] flex items-center gap-2.5 text-sm sm:text-base font-extrabold tracking-wider">
@@ -886,11 +1047,14 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
           <div className="min-h-full w-full flex flex-col items-center justify-center p-3 sm:p-6">
             {/* Device Mode & Resolution Bar */}
             <div className="max-w-5xl w-full mb-3 flex flex-wrap items-center justify-between gap-2 bg-slate-900/75 border border-slate-800 rounded-xl px-3.5 py-2">
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
+              <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-slate-300">
                 {renderDeviceIcon(effectiveMode)}
                 <span className="uppercase tracking-wider">
                   {effectiveMode} MODE
                   {deviceState.preference === 'auto' ? ' (AUTO-DETECTED)' : ' (MANUAL)'}
+                </span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-[10px] font-extrabold tracking-wider">
+                  <Gauge className="w-3 h-3" /> OPT: {deviceState.optimizationSpec.shortLabel}
                 </span>
               </div>
               <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
@@ -972,7 +1136,7 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
                   {savedRun ? 'NEW SURVIVAL MATCH' : 'PLAY SURVIVAL'}
                 </button>
 
-                {/* Multiplayer & Friends Button */}
+                {/* Multiplayer Button (Dual-Mode Aware) */}
                 <button
                   onClick={() => setActiveModal('multiplayer')}
                   className={`w-full flex items-center justify-between bg-gradient-to-r from-cyan-700/80 to-slate-900 hover:from-cyan-600/85 hover:to-slate-800 text-white font-extrabold px-3.5 rounded-xl border border-cyan-500/50 transition-all active:scale-95 cursor-pointer ${
@@ -980,11 +1144,16 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
                   }`}
                 >
                   <span className="flex items-center gap-2">
-                    <Users className="w-4 h-4 sm:w-5 sm:h-5 text-cyan-300" /> MULTIPLAYER &amp; FRIENDS
+                    <Users className="w-4 h-4 sm:w-5 sm:h-5 text-cyan-300" />{' '}
+                    {cgInfo.active ? 'MULTIPLAYER CO-OP' : 'MULTIPLAYER & FRIENDS'}
                   </span>
                   <span className="text-[11px] font-mono text-cyan-200 flex items-center gap-1.5">
-                    {multiplayerClient.myPlayerId ? `#${multiplayerClient.myPlayerId}` : 'ONLINE'}
-                    {pendingAlertCount > 0 && (
+                    {cgInfo.active
+                      ? cgInfo.username || 'CO-OP'
+                      : multiplayerClient.myPlayerId
+                      ? `#${multiplayerClient.myPlayerId}`
+                      : 'ONLINE'}
+                    {!cgInfo.active && pendingAlertCount > 0 && (
                       <span className="bg-amber-400 text-slate-950 font-black px-1.5 py-0.5 rounded text-[10px]">
                         {pendingAlertCount}
                       </span>
@@ -1133,7 +1302,9 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
                   }`}
                 >
                   <span>
-                    {multiplayerClient.myPlayerId
+                    {cgInfo.active
+                      ? 'Poly-Ops Zombies Co-Op'
+                      : multiplayerClient.myPlayerId
                       ? `Operator ID #${multiplayerClient.myPlayerId}`
                       : 'Poly-Ops Survival'}
                   </span>

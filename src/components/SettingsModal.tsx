@@ -1,8 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { GameEngine } from '../game/GameEngine';
-import { Sliders, Sun, Eye, Volume2, MousePointer, RotateCcw, X, Monitor, Smartphone, Tablet } from 'lucide-react';
+import { Sliders, Sun, Eye, Volume2, MousePointer, RotateCcw, X, Monitor, Smartphone, Tablet, Gauge } from 'lucide-react';
 import { crazyGames } from '../utils/crazyGames';
-import { deviceManager, type DeviceModePreference, type DeviceState } from '../utils/deviceMode';
+import {
+  deviceManager,
+  OPTIMIZATION_SPECS,
+  type DeviceModePreference,
+  type DeviceState,
+  type OptimizationPreference,
+} from '../utils/deviceMode';
 
 interface SettingsModalProps {
   engine: GameEngine | null;
@@ -65,6 +71,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ engine, onClose })
     engine.setInvertY(false);
     engine.setMasterVolume(80);
     deviceManager.setPreference('auto');
+    deviceManager.setOptimizationPreference('auto');
   };
 
   const DEVICE_OPTIONS: { id: DeviceModePreference; label: string; icon: React.ReactNode }[] = [
@@ -72,6 +79,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ engine, onClose })
     { id: 'computer', label: 'COMPUTER', icon: <Monitor className="w-3.5 h-3.5" /> },
     { id: 'phone', label: 'PHONE', icon: <Smartphone className="w-3.5 h-3.5" /> },
     { id: 'tablet', label: 'TABLET', icon: <Tablet className="w-3.5 h-3.5" /> },
+  ];
+
+  const OPTIMIZATION_OPTIONS: { id: OptimizationPreference; label: string }[] = [
+    { id: 'auto', label: 'AUTO (MATCH DEVICE)' },
+    { id: 'phone_performance', label: OPTIMIZATION_SPECS.phone_performance.shortLabel },
+    { id: 'tablet_balanced', label: OPTIMIZATION_SPECS.tablet_balanced.shortLabel },
+    { id: 'desktop_quality', label: OPTIMIZATION_SPECS.desktop_quality.shortLabel },
   ];
 
   return (
@@ -136,6 +150,51 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ engine, onClose })
               </div>
               <div className="text-[11px] text-slate-400 leading-snug">
                 <strong>Phone</strong> uses landscape-locked touch joysticks. <strong>Tablet</strong> uses touch controls in any orientation. <strong>Computer</strong> uses mouse &amp; keyboard.
+              </div>
+            </div>
+          </div>
+
+          {/* Section 0B: Graphics Optimization Profile */}
+          <div className="space-y-3">
+            <div className="text-xs font-bold tracking-widest text-emerald-400 uppercase flex items-center gap-2">
+              <Gauge className="w-4 h-4" /> PERFORMANCE &amp; OPTIMIZATION MODE
+            </div>
+            <div className="bg-slate-950/80 border border-slate-800 p-3.5 sm:p-4 rounded-xl space-y-2.5">
+              <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
+                <span>
+                  Active Preset:{' '}
+                  <strong className="text-emerald-300 uppercase">
+                    {deviceState.optimizationSpec.shortLabel}
+                  </strong>
+                  {deviceState.optimizationPreference === 'auto' && (
+                    <span className="text-slate-400"> (AUTO-PAIRED)</span>
+                  )}
+                </span>
+                <span className="text-slate-400 font-mono">
+                  {deviceState.optimizationSpec.maxPixelRatio}x DPR · {deviceState.optimizationSpec.shadowsEnabled ? 'SHADOWS ON' : 'SHADOWS OFF'}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {OPTIMIZATION_OPTIONS.map((opt) => {
+                  const active = deviceState.optimizationPreference === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => deviceManager.setOptimizationPreference(opt.id)}
+                      className={`min-h-[40px] px-2.5 py-2 rounded-lg text-xs font-extrabold border flex items-center justify-center cursor-pointer transition-all ${
+                        active
+                          ? 'bg-emerald-500/20 border-emerald-400 text-emerald-200 shadow-[0_0_12px_rgba(16,185,129,0.25)]'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                      }`}
+                    >
+                      <span className="truncate">{opt.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="text-[11px] text-slate-400 leading-snug">
+                {deviceState.optimizationSpec.description}
               </div>
             </div>
           </div>

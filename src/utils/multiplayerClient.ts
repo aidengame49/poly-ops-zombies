@@ -22,6 +22,17 @@ export interface SocialNotice {
   message: string;
 }
 
+export interface UnavailableRoomModalState {
+  reason: 'not_found' | 'full' | 'in_progress' | 'ended';
+  title: string;
+  message: string;
+}
+
+const CLIENT_PROFANITY_REGEX = /\b(fuck|shit|bitch|asshole|bastard|cunt|dick|cock|pussy|whore|slut|fag|faggot|nigger|nigga|retard|kike|spic|chink|twat|wanker)\b/gi;
+export function filterProfanityText(input: string): string {
+  return input.replace(CLIENT_PROFANITY_REGEX, (m) => '*'.repeat(m.length));
+}
+
 type WorldSnapshotMsg = Extract<ServerToClientMessage, { type: 'world:snapshot' }>;
 type MatchStartedMsg = Extract<ServerToClientMessage, { type: 'room:matchStarted' }>;
 type BarrierUpdatedMsg = Extract<ServerToClientMessage, { type: 'barrier:updated' }>;
@@ -118,6 +129,7 @@ class MultiplayerClient {
   private serverUrl: string = '';
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
+  private replacedByOtherTab = false;
   private pendingQueue: ClientToServerMessage[] = [];
   private listeners = new Set<() => void>();
   private matchStartedListeners = new Set<(msg: MatchStartedMsg) => void>();
@@ -132,8 +144,20 @@ class MultiplayerClient {
   public roomInvites: RoomInviteEntry[] = [];
   public currentRoom: MultiplayerRoomState | null = null;
   public lastNotice: SocialNotice | null = null;
+  public unavailableModal: UnavailableRoomModalState | null = null;
   public customServerUrl: string = gameStorage.getItem(STORAGE_KEYS.MP_SERVER) || '';
   public currentLoadout: PlayerLoadout = { startingPistolId: 'pistol', grenadeType: 'frag' };
+
+  constructor() {
+    crazyGames.subscribeAuthChange((cgUser) => {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN && this.profile) {
+        this.send({
+          type: 'profile:syncCrazyGames',
+          crazyGamesUsername: cgUser?.username || null,
+        });
+      }
+    });
+  }
 
   public get connectionStatus(): ConnectionStatus {
     return this.status;
@@ -194,8 +218,13 @@ class MultiplayerClient {
     this.connect();
   }
 
-  public connect() {
+  public connect(manual = false) {
     if (typeof window === 'undefined') return;
+    if (manual) {
+      this.replacedByOtherTab = false;
+      this.reconnectAttempts = 0;
+    }
+    if (this.replacedByOtherTab) return;
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       return;
     }
@@ -217,6 +246,7 @@ class MultiplayerClient {
         if (this.ws !== socket) return;
         this.status = 'connected';
         this.reconnectAttempts = 0;
+        this.replacedByOtherTab = false;
 
         const savedName = gameStorage.getItem(STORAGE_KEYS.MP_NAME) || undefined;
         const cgName = crazyGames.user?.username || null;
@@ -225,7 +255,7 @@ class MultiplayerClient {
           JSON.stringify({
             type: 'auth:hello',
             authToken: getOrCreateAuthToken(),
-            requestedName: savedName,
+            requestedName: crazyGames.isActive ? undefined : savedName,
             crazyGamesUsername: cgName,
             loadout: this.currentLoadout,
           } satisfies ClientToServerMessage)
@@ -250,10 +280,21 @@ class MultiplayerClient {
         this.emitStateChange();
       };
 
-      socket.onclose = () => {
+      socket.onclose = (ev) => {
         if (this.ws !== socket) return;
         this.ws = null;
+        this.profile = null;
         this.status = 'disconnected';
+        if (ev.code === 4000) {
+          this.replacedByOtherTab = true;
+          this.lastNotice = {
+            id: `${Date.now()}_tab`,
+            level: 'error',
+            message: 'Multiplayer session active in another tab. Click RECONNECT to switch to this tab.',
+          };
+          this.emitStateChange();
+          return;
+        }
         this.emitStateChange();
         this.scheduleReconnect();
       };
@@ -269,6 +310,7 @@ class MultiplayerClient {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    this.profile = null;
     if (this.ws) {
       const s = this.ws;
       this.ws = null;
@@ -283,7 +325,7 @@ class MultiplayerClient {
   }
 
   private scheduleReconnect() {
-    if (this.reconnectTimer) return;
+    if (this.reconnectTimer || this.replacedByOtherTab) return;
     const delay = Math.min(10000, 1200 * Math.pow(1.4, this.reconnectAttempts));
     this.reconnectAttempts++;
     this.reconnectTimer = setTimeout(() => {
@@ -293,10 +335,16 @@ class MultiplayerClient {
   }
 
   public send(msg: ClientToServerMessage) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    // CRITICAL: Must also wait for this.profile (auth:welcome) so server never drops pre-auth messages!
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.profile) {
       if (msg.type !== 'player:transform') {
+        if (msg.type === 'room:create' || msg.type === 'room:join' || msg.type === 'room:quickplay') {
+          this.pendingQueue = this.pendingQueue.filter(
+            (q) => q.type !== 'room:create' && q.type !== 'room:join' && q.type !== 'room:quickplay'
+          );
+        }
         this.pendingQueue.push(msg);
-        this.connect();
+        this.connect(true);
       }
       return;
     }
@@ -361,6 +409,22 @@ class MultiplayerClient {
         this.syncCrazyGamesRoom(msg.room);
         this.emitStateChange();
         break;
+
+      case 'room:unavailable': {
+        const titles: Record<string, string> = {
+          full: 'Squad Room Is Full',
+          in_progress: 'Match Already In Progress',
+          not_found: 'Room Unavailable',
+          ended: 'Match Already Ended',
+        };
+        this.unavailableModal = {
+          reason: msg.reason,
+          title: titles[msg.reason] || 'Room Unavailable',
+          message: msg.message,
+        };
+        this.emitStateChange();
+        break;
+      }
 
       case 'room:matchStarted':
         this.currentRoom = msg.room;
@@ -460,7 +524,7 @@ class MultiplayerClient {
   // High-Level Social & Room Commands
   // -------------------------------------------------------------------------
   public setDisplayName(displayName: string) {
-    const clean = displayName.trim().slice(0, 20);
+    const clean = filterProfanityText(displayName.trim()).slice(0, 20);
     if (clean.length < 2) return;
     gameStorage.setItem(STORAGE_KEYS.MP_NAME, clean);
     this.send({ type: 'profile:setName', displayName: clean });
@@ -550,8 +614,17 @@ class MultiplayerClient {
     this.send({ type: 'room:restart' });
   }
 
+  public returnRoomToLobby() {
+    this.send({ type: 'room:returnToLobby' });
+  }
+
   public clearNotice() {
     this.lastNotice = null;
+    this.emitStateChange();
+  }
+
+  public dismissUnavailableModal() {
+    this.unavailableModal = null;
     this.emitStateChange();
   }
 }
