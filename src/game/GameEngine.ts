@@ -15,6 +15,11 @@ import {
 } from '../types/game';
 import { soundEngine } from '../utils/soundEngine';
 import {
+  WEAPONS_MAP,
+  ARMORY_CHEST_POOL,
+  WALL_BUY_CONFIG,
+} from '../data/weapons';
+import {
   createFloorTexture,
   createWallTexture,
   createWoodPlankTexture,
@@ -23,8 +28,12 @@ import {
   createMysteryBoxTexture,
   createWallBuyChalkTexture,
 } from '../utils/proceduralTextures';
+import { OFFICIAL_SECTOR_ZERO_ID, OFFICIAL_BLIGHTED_WOODS_ID } from '../data/officialMaps';
+import { buildForestLavaMap, ForestLavaMapState } from './forestLavaMap';
 
-export function createWeapon3DModel(type: string, isPap: boolean = false): THREE.Group {
+export { WALL_BUY_CONFIG };
+
+export function createWeapon3DModel(typeOrId: string, isPap: boolean = false): THREE.Group {
   const group = new THREE.Group();
 
   const primaryColor = isPap ? '#00f0ff' : '#2b3340';
@@ -35,13 +44,98 @@ export function createWeapon3DModel(type: string, isPap: boolean = false): THREE
     emissive: isPap ? new THREE.Color('#00f0ff') : new THREE.Color('#000000'),
     emissiveIntensity: isPap ? 0.4 : 0,
   });
+  const silverMat = new THREE.MeshStandardMaterial({
+    color: isPap ? '#00f0ff' : '#cbd5e1',
+    metalness: 0.92,
+    roughness: 0.18,
+    emissive: isPap ? new THREE.Color('#00f0ff') : new THREE.Color('#000000'),
+    emissiveIntensity: isPap ? 0.35 : 0,
+  });
+  const tanMat = new THREE.MeshStandardMaterial({
+    color: isPap ? '#00e5ff' : '#b59461',
+    metalness: 0.35,
+    roughness: 0.55,
+    emissive: isPap ? new THREE.Color('#00f0ff') : new THREE.Color('#000000'),
+    emissiveIntensity: isPap ? 0.3 : 0,
+  });
+  const oliveMat = new THREE.MeshStandardMaterial({
+    color: isPap ? '#00e5ff' : '#3f5236',
+    metalness: 0.3,
+    roughness: 0.65,
+  });
   const darkMat = new THREE.MeshStandardMaterial({ color: '#121620', metalness: 0.8, roughness: 0.4 });
   const woodMat = new THREE.MeshStandardMaterial({ color: '#5c3a1e', roughness: 0.7 });
   const brassMat = new THREE.MeshStandardMaterial({ color: '#b8860b', metalness: 0.9, roughness: 0.2 });
   const tritiumMat = new THREE.MeshBasicMaterial({ color: isPap ? '#00f0ff' : '#00ff66' });
   const rayGlowMat = new THREE.MeshBasicMaterial({ color: isPap ? '#00ffff' : '#22ff66' });
+  const cryoGlowMat = new THREE.MeshBasicMaterial({ color: isPap ? '#ffffff' : '#67e8f9' });
+  const rocketGlowMat = new THREE.MeshStandardMaterial({ color: isPap ? '#ff00ff' : '#dc2626', roughness: 0.4, metalness: 0.5 });
 
-  if (type === 'pistol') {
+  if (typeOrId === 'revolver') {
+    // Magnum .44 Revolver
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.075, 0.18), silverMat);
+    frame.position.set(0, 0, -0.02);
+    group.add(frame);
+
+    const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.09, 10), silverMat);
+    cyl.rotation.x = Math.PI / 2;
+    cyl.position.set(0, 0.015, -0.04);
+    group.add(cyl);
+
+    const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.06, 0.28), silverMat);
+    barrel.position.set(0, 0.025, -0.22);
+    group.add(barrel);
+
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.19, 0.075), woodMat);
+    grip.position.set(0, -0.1, 0.07);
+    grip.rotation.x = 0.38;
+    group.add(grip);
+
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.005, 6, 6), tritiumMat);
+    dot.position.set(0, 0.062, -0.34);
+    group.add(dot);
+  } else if (typeOrId === 'deagle') {
+    // Desert Hawk .50 Hand Cannon
+    const slide = new THREE.Mesh(new THREE.BoxGeometry(0.082, 0.1, 0.38), silverMat);
+    slide.position.set(0, 0.01, -0.08);
+    group.add(slide);
+
+    const lower = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.045, 0.3), darkMat);
+    lower.position.set(0, -0.045, -0.04);
+    group.add(lower);
+
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.068, 0.2, 0.095), darkMat);
+    grip.position.set(0, -0.13, 0.05);
+    grip.rotation.x = 0.25;
+    group.add(grip);
+
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.006, 6, 6), tritiumMat);
+    dot.position.set(0, 0.068, -0.25);
+    group.add(dot);
+  } else if (typeOrId === 'machine_pistol') {
+    // Viper-9 Auto Pistol
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.09, 0.32), darkMat);
+    body.position.set(0, 0, -0.06);
+    group.add(body);
+
+    const suppressor = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, 0.16, 10), steelMat);
+    suppressor.rotation.x = Math.PI / 2;
+    suppressor.position.set(0, 0.01, -0.29);
+    group.add(suppressor);
+
+    const extMag = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.26, 0.055), steelMat);
+    extMag.position.set(0, -0.18, 0.04);
+    extMag.rotation.x = 0.2;
+    group.add(extMag);
+
+    const foregrip = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.12, 0.045), darkMat);
+    foregrip.position.set(0, -0.09, -0.16);
+    group.add(foregrip);
+
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.005, 6, 6), tritiumMat);
+    dot.position.set(0, 0.055, -0.2);
+    group.add(dot);
+  } else if (typeOrId === 'pistol') {
     // M1911 Pistol
     const slide = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.09, 0.32), steelMat);
     slide.position.set(0, 0, -0.05);
@@ -68,7 +162,114 @@ export function createWeapon3DModel(type: string, isPap: boolean = false): THREE
     const dot = new THREE.Mesh(new THREE.SphereGeometry(0.005, 6, 6), tritiumMat);
     dot.position.set(0, 0.058, -0.19);
     group.add(dot);
-  } else if (type === 'smg') {
+  } else if (typeOrId === 'ump') {
+    // UMP-45 Tactical SMG
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.11, 0.44), darkMat);
+    body.position.set(0, 0, -0.1);
+    group.add(body);
+
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.2, 10), steelMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.01, -0.4);
+    group.add(barrel);
+
+    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.28, 0.065), darkMat);
+    mag.position.set(0, -0.18, -0.16);
+    group.add(mag);
+
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.16, 0.075), darkMat);
+    grip.position.set(0, -0.11, 0.05);
+    grip.rotation.x = 0.28;
+    group.add(grip);
+
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.09, 0.26), steelMat);
+    stock.position.set(0, -0.01, 0.22);
+    group.add(stock);
+
+    const holo = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.08), steelMat);
+    holo.position.set(0, 0.08, -0.08);
+    group.add(holo);
+
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.006, 6, 6), tritiumMat);
+    dot.position.set(0, 0.09, -0.08);
+    group.add(dot);
+  } else if (typeOrId === 'p90') {
+    // P90-XPDW Bullpup SMG
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.13, 0.54), darkMat);
+    body.position.set(0, -0.01, -0.06);
+    group.add(body);
+
+    const topMag = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.04, 0.34), tanMat);
+    topMag.position.set(0, 0.075, -0.08);
+    group.add(topMag);
+
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.14, 10), steelMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.01, -0.38);
+    group.add(barrel);
+
+    const sight = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.05, 0.07), steelMat);
+    sight.position.set(0, 0.11, -0.22);
+    group.add(sight);
+
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.006, 6, 6), tritiumMat);
+    dot.position.set(0, 0.12, -0.22);
+    group.add(dot);
+  } else if (typeOrId === 'vector') {
+    // KRISS-V9 Compact SMG
+    const upper = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.09, 0.38), tanMat);
+    upper.position.set(0, 0.01, -0.1);
+    group.add(upper);
+
+    const lower = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.13, 0.16), darkMat);
+    lower.position.set(0, -0.07, -0.18);
+    group.add(lower);
+
+    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.28, 0.06), darkMat);
+    mag.position.set(0, -0.2, -0.22);
+    mag.rotation.x = 0.22;
+    group.add(mag);
+
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, 0.18, 10), steelMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.01, -0.36);
+    group.add(barrel);
+
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.07, 0.24), darkMat);
+    stock.position.set(0, 0, 0.18);
+    group.add(stock);
+
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.005, 6, 6), tritiumMat);
+    dot.position.set(0, 0.068, -0.24);
+    group.add(dot);
+  } else if (typeOrId === 'thompson') {
+    // M1928 Drum SMG
+    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.095, 0.44), steelMat);
+    receiver.position.set(0, 0, -0.08);
+    group.add(receiver);
+
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.28, 10), darkMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.015, -0.42);
+    group.add(barrel);
+
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.115, 0.115, 0.075, 16), darkMat);
+    drum.rotation.x = Math.PI / 2;
+    drum.position.set(0, -0.12, -0.16);
+    group.add(drum);
+
+    const foregrip = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.15, 0.065), woodMat);
+    foregrip.position.set(0, -0.09, -0.34);
+    group.add(foregrip);
+
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.13, 0.3), woodMat);
+    stock.position.set(0, -0.03, 0.26);
+    group.add(stock);
+
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.005, 6, 6), tritiumMat);
+    dot.position.set(0, 0.05, -0.54);
+    group.add(dot);
+  } else if (typeOrId === 'smg') {
     // MP40 SMG
     const receiver = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.55, 12), steelMat);
     receiver.rotation.x = Math.PI / 2;
@@ -101,39 +302,85 @@ export function createWeapon3DModel(type: string, isPap: boolean = false): THREE
     const dot = new THREE.Mesh(new THREE.SphereGeometry(0.005, 6, 6), tritiumMat);
     dot.position.set(0, 0.048, -0.52);
     group.add(dot);
-  } else if (type === 'ar') {
-    // VX-44 Assault Rifle
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.12, 0.48), steelMat);
-    body.position.set(0, 0, -0.1);
-    group.add(body);
+  } else if (typeOrId === 'double_barrel') {
+    // Twin-Coach 12G Double Barrel Shotgun
+    const bLeft = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, 0.66, 10), steelMat);
+    bLeft.rotation.x = Math.PI / 2;
+    bLeft.position.set(-0.026, 0.02, -0.28);
+    const bRight = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, 0.66, 10), steelMat);
+    bRight.rotation.x = Math.PI / 2;
+    bRight.position.set(0.026, 0.02, -0.28);
+    group.add(bLeft, bRight);
 
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.025, 0.38, 10), darkMat);
-    barrel.rotation.x = Math.PI / 2;
-    barrel.position.set(0, 0.02, -0.45);
-    group.add(barrel);
+    const forend = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.065, 0.26), woodMat);
+    forend.position.set(0, -0.015, -0.24);
+    group.add(forend);
 
-    const handguard = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.1, 0.24), woodMat);
-    handguard.position.set(0, -0.01, -0.32);
-    group.add(handguard);
+    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.095, 0.2), silverMat);
+    receiver.position.set(0, 0, 0.08);
+    group.add(receiver);
 
-    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.34, 0.09), brassMat);
-    mag.position.set(0, -0.2, -0.08);
-    mag.rotation.x = -0.35;
-    group.add(mag);
-
-    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.14, 0.28), woodMat);
-    stock.position.set(0, -0.02, 0.25);
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.13, 0.34), woodMat);
+    stock.position.set(0, -0.04, 0.32);
+    stock.rotation.x = 0.12;
     group.add(stock);
 
-    const optic = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.06, 0.12), darkMat);
-    optic.position.set(0, 0.09, -0.1);
-    group.add(optic);
-
-    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.006, 6, 6), tritiumMat);
-    dot.position.set(0, 0.1, -0.1);
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.005, 6, 6), tritiumMat);
+    dot.position.set(0, 0.048, -0.58);
     group.add(dot);
-  } else if (type === 'shotgun') {
-    // KRM-262 Shotgun
+  } else if (typeOrId === 'auto_shotgun') {
+    // Striker-12 Revolving Drum Shotgun
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.11, 0.36), darkMat);
+    body.position.set(0, 0.01, -0.08);
+    group.add(body);
+
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.38, 10), steelMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.025, -0.42);
+    group.add(barrel);
+
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.115, 0.115, 0.13, 14), steelMat);
+    drum.rotation.x = Math.PI / 2;
+    drum.position.set(0, -0.06, -0.08);
+    group.add(drum);
+
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.16, 0.07), darkMat);
+    grip.position.set(0, -0.11, 0.08);
+    grip.rotation.x = 0.25;
+    group.add(grip);
+
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.04, 0.28), steelMat);
+    stock.position.set(0, 0.01, 0.22);
+    group.add(stock);
+
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.005, 6, 6), tritiumMat);
+    dot.position.set(0, 0.06, -0.56);
+    group.add(dot);
+  } else if (typeOrId === 'spas') {
+    // Tactical-12 Combat Shotgun
+    const shroud = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.11, 0.56), darkMat);
+    shroud.position.set(0, 0.01, -0.2);
+    group.add(shroud);
+
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.25, 10), steelMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.03, -0.56);
+    group.add(barrel);
+
+    const topStock = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.028, 0.36), steelMat);
+    topStock.position.set(0, 0.082, -0.02);
+    group.add(topStock);
+
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.16, 0.08), darkMat);
+    grip.position.set(0, -0.11, 0.1);
+    grip.rotation.x = 0.28;
+    group.add(grip);
+
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.005, 6, 6), tritiumMat);
+    dot.position.set(0, 0.065, -0.64);
+    group.add(dot);
+  } else if (typeOrId === 'shotgun') {
+    // SG-26 Shotgun
     const barrelTop = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.65, 10), steelMat);
     barrelTop.rotation.x = Math.PI / 2;
     barrelTop.position.set(0, 0.03, -0.25);
@@ -164,8 +411,312 @@ export function createWeapon3DModel(type: string, isPap: boolean = false): THREE
     const dot = new THREE.Mesh(new THREE.SphereGeometry(0.005, 6, 6), tritiumMat);
     dot.position.set(0, 0.068, -0.55);
     group.add(dot);
-  } else if (type === 'sniper') {
-    // DSR-50 Heavy Sniper Rifle
+  } else if (typeOrId === 'carbine') {
+    // M4A1 Tactical Carbine
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.11, 0.44), darkMat);
+    body.position.set(0, 0, -0.06);
+    group.add(body);
+
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.085, 0.26), steelMat);
+    rail.position.set(0, 0.01, -0.36);
+    group.add(rail);
+
+    const suppressor = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.24, 12), darkMat);
+    suppressor.rotation.x = Math.PI / 2;
+    suppressor.position.set(0, 0.015, -0.58);
+    group.add(suppressor);
+
+    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.28, 0.08), steelMat);
+    mag.position.set(0, -0.17, -0.12);
+    mag.rotation.x = -0.15;
+    group.add(mag);
+
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.13, 0.26), darkMat);
+    stock.position.set(0, -0.02, 0.26);
+    group.add(stock);
+
+    const redDot = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.055, 0.09), steelMat);
+    redDot.position.set(0, 0.08, -0.08);
+    group.add(redDot);
+
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.006, 6, 6), tritiumMat);
+    dot.position.set(0, 0.09, -0.08);
+    group.add(dot);
+  } else if (typeOrId === 'famas') {
+    // FR-556 Bullpup Rifle
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 0.56), darkMat);
+    body.position.set(0, 0, 0.04);
+    group.add(body);
+
+    const carryHandle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.075, 0.36), steelMat);
+    carryHandle.position.set(0, 0.095, -0.02);
+    group.add(carryHandle);
+
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.26, 10), steelMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.015, -0.35);
+    group.add(barrel);
+
+    const rearMag = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.24, 0.075), steelMat);
+    rearMag.position.set(0, -0.15, 0.18);
+    group.add(rearMag);
+
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.006, 6, 6), tritiumMat);
+    dot.position.set(0, 0.115, -0.16);
+    group.add(dot);
+  } else if (typeOrId === 'scar') {
+    // SCAR-H Heavy Battle Rifle
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.125, 0.54), tanMat);
+    body.position.set(0, 0.01, -0.12);
+    group.add(body);
+
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.026, 0.32, 10), darkMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.02, -0.52);
+    group.add(barrel);
+
+    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.052, 0.26, 0.095), tanMat);
+    mag.position.set(0, -0.17, -0.12);
+    group.add(mag);
+
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.14, 0.28), tanMat);
+    stock.position.set(0, -0.01, 0.26);
+    group.add(stock);
+
+    const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.2, 10), darkMat);
+    scope.rotation.x = Math.PI / 2;
+    scope.position.set(0, 0.095, -0.1);
+    group.add(scope);
+
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.006, 6, 6), tritiumMat);
+    dot.position.set(0, 0.1, -0.2);
+    group.add(dot);
+  } else if (typeOrId === 'ak74u') {
+    // AK-74u Alpha
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.11, 0.42), steelMat);
+    body.position.set(0, 0, -0.06);
+    group.add(body);
+
+    const handguard = new THREE.Mesh(new THREE.BoxGeometry(0.082, 0.09, 0.18), woodMat);
+    handguard.position.set(0, -0.01, -0.28);
+    group.add(handguard);
+
+    const booster = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.024, 0.14, 10), darkMat);
+    booster.rotation.x = Math.PI / 2;
+    booster.position.set(0, 0.015, -0.43);
+    group.add(booster);
+
+    const curvedMag = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.34, 0.085), brassMat);
+    curvedMag.position.set(0, -0.2, -0.08);
+    curvedMag.rotation.x = -0.38;
+    group.add(curvedMag);
+
+    const wireStock = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, 0.26), steelMat);
+    wireStock.position.set(0, 0, 0.24);
+    group.add(wireStock);
+
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.005, 6, 6), tritiumMat);
+    dot.position.set(0, 0.055, -0.35);
+    group.add(dot);
+  } else if (typeOrId === 'm14') {
+    // M14 Marksman Battle Rifle
+    const woodChassis = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.1, 0.72), woodMat);
+    woodChassis.position.set(0, -0.02, -0.02);
+    group.add(woodChassis);
+
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.42, 10), steelMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.03, -0.5);
+    group.add(barrel);
+
+    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.072, 0.07, 0.28), darkMat);
+    receiver.position.set(0, 0.035, -0.08);
+    group.add(receiver);
+
+    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.18, 0.08), steelMat);
+    mag.position.set(0, -0.14, -0.1);
+    group.add(mag);
+
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.005, 6, 6), tritiumMat);
+    dot.position.set(0, 0.065, -0.68);
+    group.add(dot);
+  } else if (typeOrId === 'ar') {
+    // VX-44 Assault Rifle
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.12, 0.48), steelMat);
+    body.position.set(0, 0, -0.1);
+    group.add(body);
+
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.025, 0.38, 10), darkMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.02, -0.45);
+    group.add(barrel);
+
+    const handguard = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.1, 0.24), woodMat);
+    handguard.position.set(0, -0.01, -0.32);
+    group.add(handguard);
+
+    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.34, 0.09), brassMat);
+    mag.position.set(0, -0.2, -0.08);
+    mag.rotation.x = -0.35;
+    group.add(mag);
+
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.14, 0.28), woodMat);
+    stock.position.set(0, -0.02, 0.25);
+    group.add(stock);
+
+    const optic = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.06, 0.12), darkMat);
+    optic.position.set(0, 0.09, -0.1);
+    group.add(optic);
+
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.006, 6, 6), tritiumMat);
+    dot.position.set(0, 0.1, -0.1);
+    group.add(dot);
+  } else if (typeOrId === 'rpk') {
+    // RPK-76 Drum LMG
+    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.12, 0.48), steelMat);
+    receiver.position.set(0, 0, -0.08);
+    group.add(receiver);
+
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.026, 0.56, 10), darkMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.015, -0.56);
+    group.add(barrel);
+
+    const handguard = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.095, 0.24), woodMat);
+    handguard.position.set(0, -0.01, -0.36);
+    group.add(handguard);
+
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.09, 16), darkMat);
+    drum.rotation.x = Math.PI / 2;
+    drum.position.set(0, -0.16, -0.14);
+    group.add(drum);
+
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.15, 0.3), woodMat);
+    stock.position.set(0, -0.02, 0.28);
+    group.add(stock);
+
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.006, 6, 6), tritiumMat);
+    dot.position.set(0, 0.055, -0.8);
+    group.add(dot);
+  } else if (typeOrId === 'minigun') {
+    // Vulcan M134 Rotary Gatling Cannon
+    const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.42, 14), darkMat);
+    motor.rotation.x = Math.PI / 2;
+    motor.position.set(0, -0.02, 0.02);
+    group.add(motor);
+
+    const topHandle = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.018, 8, 16, Math.PI), steelMat);
+    topHandle.position.set(0, 0.1, -0.04);
+    group.add(topHandle);
+
+    // 6 Rotary Barrels
+    for (let i = 0; i < 6; i++) {
+      const ang = (i * Math.PI * 2) / 6;
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.62, 8), steelMat);
+      b.rotation.x = Math.PI / 2;
+      b.position.set(Math.cos(ang) * 0.055, -0.02 + Math.sin(ang) * 0.055, -0.46);
+      group.add(b);
+    }
+
+    const clamp = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.05, 14), brassMat);
+    clamp.rotation.x = Math.PI / 2;
+    clamp.position.set(0, -0.02, -0.66);
+    group.add(clamp);
+
+    const ammoBox = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.18, 0.22), oliveMat);
+    ammoBox.position.set(-0.1, -0.16, 0.02);
+    group.add(ammoBox);
+
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.006, 6, 6), tritiumMat);
+    dot.position.set(0, 0.09, -0.66);
+    group.add(dot);
+  } else if (typeOrId === 'lmg') {
+    // MG42 Heavy Light Machine Gun
+    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.13, 0.5), steelMat);
+    receiver.position.set(0, 0, -0.05);
+    group.add(receiver);
+
+    const shroud = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.56), darkMat);
+    shroud.position.set(0, 0.01, -0.52);
+    group.add(shroud);
+
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.16, 10), steelMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.01, -0.85);
+    group.add(barrel);
+
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.14, 14), brassMat);
+    drum.rotation.z = Math.PI / 2;
+    drum.position.set(0, -0.13, -0.14);
+    group.add(drum);
+
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.14, 0.28), woodMat);
+    stock.position.set(0, -0.02, 0.3);
+    group.add(stock);
+
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.16, 0.07), darkMat);
+    grip.position.set(0, -0.13, 0.08);
+    grip.rotation.x = 0.25;
+    group.add(grip);
+
+    const sight = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.04, 0.02), tritiumMat);
+    sight.position.set(0, 0.08, -0.74);
+    group.add(sight);
+  } else if (typeOrId === 'barrett') {
+    // AMR-82 .50 Cal Anti-Materiel Rifle
+    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.14, 0.54), steelMat);
+    receiver.position.set(0, 0, 0.02);
+    group.add(receiver);
+
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.032, 0.78, 10), darkMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.025, -0.6);
+    group.add(barrel);
+
+    const brake = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.06, 0.12), steelMat);
+    brake.position.set(0, 0.025, -1.0);
+    group.add(brake);
+
+    const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.034, 0.4, 12), darkMat);
+    scope.rotation.x = Math.PI / 2;
+    scope.position.set(0, 0.115, -0.08);
+    group.add(scope);
+
+    const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.06, 12), tritiumMat);
+    lens.rotation.x = Math.PI / 2;
+    lens.position.set(0, 0.115, -0.29);
+    group.add(lens);
+
+    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.18, 0.13), darkMat);
+    mag.position.set(0, -0.15, -0.1);
+    group.add(mag);
+  } else if (typeOrId === 'bolt_sniper') {
+    // M24 Recon Sniper Rifle
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.11, 0.58), oliveMat);
+    body.position.set(0, -0.01, 0.04);
+    group.add(body);
+
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.025, 0.58, 10), darkMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.025, -0.45);
+    group.add(barrel);
+
+    const suppressor = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.24, 12), steelMat);
+    suppressor.rotation.x = Math.PI / 2;
+    suppressor.position.set(0, 0.025, -0.82);
+    group.add(suppressor);
+
+    const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.026, 0.34, 12), darkMat);
+    scope.rotation.x = Math.PI / 2;
+    scope.position.set(0, 0.095, -0.04);
+    group.add(scope);
+
+    const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.034, 0.05, 12), tritiumMat);
+    lens.rotation.x = Math.PI / 2;
+    lens.position.set(0, 0.095, -0.22);
+    group.add(lens);
+  } else if (typeOrId === 'sniper') {
+    // SR-50 Heavy Sniper Rifle
     const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.12, 0.44), steelMat);
     receiver.position.set(0, 0, 0.02);
     group.add(receiver);
@@ -196,41 +747,98 @@ export function createWeapon3DModel(type: string, isPap: boolean = false): THREE
     const mag = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.16, 0.08), steelMat);
     mag.position.set(0, -0.13, -0.05);
     group.add(mag);
-  } else if (type === 'lmg') {
-    // MG42 Heavy Light Machine Gun
-    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.13, 0.5), steelMat);
-    receiver.position.set(0, 0, -0.05);
-    group.add(receiver);
+  } else if (typeOrId === 'rpg' || typeOrId === 'launcher') {
+    // RPG-7 Rocket Launcher
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.06, 0.95, 14), oliveMat);
+    tube.rotation.x = Math.PI / 2;
+    tube.position.set(0, 0.02, -0.05);
+    group.add(tube);
 
-    const shroud = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.56), darkMat);
-    shroud.position.set(0, 0.01, -0.52);
-    group.add(shroud);
+    const heatguard = new THREE.Mesh(new THREE.CylinderGeometry(0.064, 0.064, 0.34, 14), woodMat);
+    heatguard.rotation.x = Math.PI / 2;
+    heatguard.position.set(0, 0.02, -0.12);
+    group.add(heatguard);
 
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.16, 10), steelMat);
-    barrel.rotation.x = Math.PI / 2;
-    barrel.position.set(0, 0.01, -0.85);
-    group.add(barrel);
+    const warhead = new THREE.Mesh(new THREE.ConeGeometry(0.085, 0.28, 12), rocketGlowMat);
+    warhead.rotation.x = -Math.PI / 2;
+    warhead.position.set(0, 0.02, -0.66);
+    group.add(warhead);
 
-    // Drum / Belt Box Magazine
-    const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.14, 14), brassMat);
-    drum.rotation.z = Math.PI / 2;
-    drum.position.set(0, -0.13, -0.14);
-    group.add(drum);
-
-    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.14, 0.28), woodMat);
-    stock.position.set(0, -0.02, 0.3);
-    group.add(stock);
-
-    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.16, 0.07), darkMat);
-    grip.position.set(0, -0.13, 0.08);
-    grip.rotation.x = 0.25;
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.16, 0.07), darkMat);
+    grip.position.set(0, -0.11, -0.2);
     group.add(grip);
 
-    const sight = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.04, 0.02), tritiumMat);
-    sight.position.set(0, 0.08, -0.74);
+    const sight = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.06, 0.02), tritiumMat);
+    sight.position.set(-0.04, 0.09, -0.42);
     group.add(sight);
-  } else if (type === 'raygun') {
-    // Ray Gun
+  } else if (typeOrId === 'grenade_launcher') {
+    // MGL-6 Rotary Grenade Launcher
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.115, 0.115, 0.19, 12), darkMat);
+    drum.rotation.x = Math.PI / 2;
+    drum.position.set(0, 0, -0.08);
+    group.add(drum);
+
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.34, 12), steelMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.03, -0.34);
+    group.add(barrel);
+
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.12, 0.26), darkMat);
+    stock.position.set(0, -0.02, 0.18);
+    group.add(stock);
+
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.16, 0.065), darkMat);
+    grip.position.set(0, -0.13, -0.28);
+    group.add(grip);
+
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.006, 6, 6), tritiumMat);
+    dot.position.set(0, 0.09, -0.45);
+    group.add(dot);
+  } else if (typeOrId === 'railgun') {
+    // ARC-9 Electromagnetic Railgun
+    const chassis = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.13, 0.44), steelMat);
+    chassis.position.set(0, 0, -0.02);
+    group.add(chassis);
+
+    const topRail = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.03, 0.62), darkMat);
+    topRail.position.set(0, 0.045, -0.48);
+    const botRail = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.03, 0.62), darkMat);
+    botRail.position.set(0, -0.025, -0.48);
+    group.add(topRail, botRail);
+
+    const coreBeam = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.035, 0.58), rayGlowMat);
+    coreBeam.position.set(0, 0.01, -0.46);
+    group.add(coreBeam);
+
+    const optic = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.055, 0.14), darkMat);
+    optic.position.set(0, 0.095, -0.1);
+    group.add(optic);
+
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.007, 6, 6), rayGlowMat);
+    dot.position.set(0, 0.1, -0.18);
+    group.add(dot);
+  } else if (typeOrId === 'cryo_cannon') {
+    // Cryo Emitter
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.12, 0.46), silverMat);
+    body.position.set(0, 0, -0.1);
+    group.add(body);
+
+    const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.24, 12), cryoGlowMat);
+    tank.rotation.x = Math.PI / 2;
+    tank.position.set(0, 0.09, -0.12);
+    group.add(tank);
+
+    const nozzle = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.18, 12), cryoGlowMat);
+    nozzle.rotation.x = -Math.PI / 2;
+    nozzle.position.set(0, 0, -0.42);
+    group.add(nozzle);
+
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.16, 0.075), darkMat);
+    grip.position.set(0, -0.11, 0.04);
+    grip.rotation.x = 0.25;
+    group.add(grip);
+  } else if (typeOrId === 'raygun') {
+    // Plasma Blaster
     const body = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.05, 0.4, 12), steelMat);
     body.rotation.x = Math.PI / 2;
     body.position.set(0, 0, -0.12);
@@ -255,15 +863,6 @@ export function createWeapon3DModel(type: string, isPap: boolean = false): THREE
   return group;
 }
 
-export const WALL_BUY_CONFIG: Record<string, { name: string; price: number; wepType: string }> = {
-  wall_buy_smg: { name: 'MP40', price: 1000, wepType: 'smg' },
-  wall_buy_ar: { name: 'VX-44', price: 1500, wepType: 'ar' },
-  wall_buy_shotgun: { name: 'SG-26', price: 1200, wepType: 'shotgun' },
-  wall_buy_sniper: { name: 'SR-50', price: 2000, wepType: 'sniper' },
-  wall_buy_lmg: { name: 'MG42 LMG', price: 2500, wepType: 'lmg' },
-  wall_buy_raygun: { name: 'Plasma Blaster', price: 4000, wepType: 'raygun' },
-};
-
 export function createCustomPropMesh(type: MapObjectType, color?: string): THREE.Group | null {
   if (type in WALL_BUY_CONFIG) {
     const cfg = WALL_BUY_CONFIG[type];
@@ -276,7 +875,8 @@ export function createCustomPropMesh(type: MapObjectType, color?: string): THREE
     grp.add(plaque);
 
     const gunModel = createWeapon3DModel(cfg.wepType, false);
-    const modelScale = cfg.wepType === 'sniper' || cfg.wepType === 'lmg' ? 0.92 : 1.1;
+    const largeWeapons = ['sniper', 'barrett', 'bolt_sniper', 'lmg', 'rpk', 'minigun', 'rpg', 'railgun', 'm14'];
+    const modelScale = largeWeapons.includes(cfg.wepType) ? 0.86 : 1.08;
     gunModel.scale.set(modelScale, modelScale, modelScale);
     gunModel.position.set(0, 0.18, 0.1);
     gunModel.rotation.y = Math.PI / 2;
@@ -472,116 +1072,8 @@ export class GameEngine {
     roundBreakTimer: 0,
   };
 
-  // Weapons Pool
-  private baseWeapons: Record<string, WeaponStats> = {
-    pistol: {
-      id: 'pistol',
-      name: 'M1911',
-      papName: 'Twin Vipers',
-      isPap: false,
-      type: 'pistol',
-      damage: 40,
-      fireRate: 0.22,
-      clipSize: 8,
-      maxReserve: 80,
-      reloadTime: 1.4,
-      price: 0,
-      color: '#aaaaaa',
-      papColor: '#00f0ff',
-    },
-    smg: {
-      id: 'smg',
-      name: 'MP40',
-      papName: 'Afterburner',
-      isPap: false,
-      type: 'smg',
-      damage: 45,
-      fireRate: 0.09,
-      clipSize: 32,
-      maxReserve: 192,
-      reloadTime: 1.8,
-      price: 1000,
-      color: '#4488ff',
-      papColor: '#00ffff',
-    },
-    ar: {
-      id: 'ar',
-      name: 'VX-44',
-      papName: 'Annihilator-44',
-      isPap: false,
-      type: 'ar',
-      damage: 75,
-      fireRate: 0.13,
-      clipSize: 30,
-      maxReserve: 180,
-      reloadTime: 2.1,
-      price: 1500,
-      color: '#ffaa22',
-      papColor: '#00ffff',
-    },
-    shotgun: {
-      id: 'shotgun',
-      name: 'SG-26',
-      papName: "Dragon's Breath",
-      isPap: false,
-      type: 'shotgun',
-      damage: 32,
-      pellets: 8,
-      spread: 0.08,
-      fireRate: 0.75,
-      clipSize: 8,
-      maxReserve: 48,
-      reloadTime: 2.6,
-      price: 1200,
-      color: '#ff4422',
-      papColor: '#ffaa00',
-    },
-    sniper: {
-      id: 'sniper',
-      name: 'SR-50',
-      papName: 'Apex Executioner',
-      isPap: false,
-      type: 'sniper',
-      damage: 210,
-      fireRate: 0.85,
-      clipSize: 5,
-      maxReserve: 35,
-      reloadTime: 2.5,
-      price: 2000,
-      color: '#38bdf8',
-      papColor: '#00ffff',
-    },
-    lmg: {
-      id: 'lmg',
-      name: 'MG42',
-      papName: 'Barrage Shredder',
-      isPap: false,
-      type: 'lmg',
-      damage: 52,
-      fireRate: 0.075,
-      clipSize: 75,
-      maxReserve: 300,
-      reloadTime: 3.1,
-      price: 2500,
-      color: '#f59e0b',
-      papColor: '#00ffff',
-    },
-    raygun: {
-      id: 'raygun',
-      name: 'Plasma Blaster',
-      papName: 'X2 Hyper-Plasma',
-      isPap: false,
-      type: 'raygun',
-      damage: 240,
-      fireRate: 0.28,
-      clipSize: 20,
-      maxReserve: 120,
-      reloadTime: 1.9,
-      price: 4000,
-      color: '#22ff66',
-      papColor: '#00ffff',
-    },
-  };
+  // Weapons Pool (populated from unified 30-weapon arsenal)
+  private baseWeapons: Record<string, WeaponStats> = { ...WEAPONS_MAP };
 
   // Player State
   public playerWeapons: PlayerWeapon[] = [];
@@ -615,7 +1107,18 @@ export class GameEngine {
   // Entities
   public zombies: Zombie[] = [];
   private particles: Particle[] = [];
-  private bullets: { mesh: THREE.Mesh; vel: THREE.Vector3; life: number; isPap: boolean; damage: number }[] = [];
+  private bullets: {
+    mesh: THREE.Mesh;
+    vel: THREE.Vector3;
+    life: number;
+    isPap: boolean;
+    damage: number;
+    splashRadius?: number;
+    pierceLeft?: number;
+    hitZombieIds?: Set<string>;
+    color?: string;
+  }[] = [];
+  private isFiring: boolean = false;
 
   // 3D Gun Rig & Player Body Viewmodel
   private gunGroup: THREE.Group = new THREE.Group();
@@ -662,7 +1165,11 @@ export class GameEngine {
   public setWorldBrightness(val: number) {
     this.settings.worldBrightness = val;
     if (this.ambientLight) {
-      this.ambientLight.intensity = this.activeMapConfig ? 0.04 * val : 0.35 + val * 0.6;
+      this.ambientLight.intensity = this.activeMapConfig
+        ? 0.04 * val
+        : this.activeOfficialMapId === OFFICIAL_BLIGHTED_WOODS_ID
+        ? 0.2 + val * 0.45
+        : 0.35 + val * 0.6;
     }
     if (this.renderer && !this.activeMapConfig) {
       this.renderer.toneMappingExposure = 0.7 + val * 0.55;
@@ -730,9 +1237,10 @@ export class GameEngine {
     this.unloadMap();
   }
 
-  // Mystery Box State
+  // Armory Chest State
   private isBoxSpinning: boolean = false;
   private boxSpinTimer: number = 0;
+  private boxSpinTimeout: ReturnType<typeof setTimeout> | null = null;
   private boxFloatingGun: THREE.Group | null = null;
 
   // UI Callback hooks
@@ -791,6 +1299,8 @@ export class GameEngine {
 
   public isMapLoaded: boolean = false;
   public activeMapConfig?: CustomMapConfig;
+  public activeOfficialMapId: string = OFFICIAL_SECTOR_ZERO_ID;
+  private forestLavaState: ForestLavaMapState | null = null;
   private customSolidBoxes: { minX: number; maxX: number; minZ: number; maxZ: number; minY: number; maxY: number }[] = [];
   private customZombieSpawners: THREE.Vector3[] = [];
   private customSpawnPos: THREE.Vector3 = new THREE.Vector3(0, 1.6, 0);
@@ -799,13 +1309,22 @@ export class GameEngine {
   private customTeleporters: THREE.Vector3[] = [];
   private lastTeleportTime: number = 0;
 
+  private get usesSolidBoxes(): boolean {
+    return Boolean(this.activeMapConfig) || this.activeOfficialMapId === OFFICIAL_BLIGHTED_WOODS_ID;
+  }
+
   public loadMap(customConfig?: CustomMapConfig) {
     if (this.isMapLoaded) return;
 
-    if (customConfig) {
+    if (customConfig && customConfig.id === OFFICIAL_BLIGHTED_WOODS_ID) {
+      this.activeMapConfig = undefined;
+      this.activeOfficialMapId = OFFICIAL_BLIGHTED_WOODS_ID;
+    } else if (customConfig && customConfig.id !== OFFICIAL_SECTOR_ZERO_ID) {
       this.activeMapConfig = customConfig;
+      this.activeOfficialMapId = OFFICIAL_SECTOR_ZERO_ID;
     } else {
       this.activeMapConfig = undefined;
+      this.activeOfficialMapId = OFFICIAL_SECTOR_ZERO_ID;
     }
 
     // Reset Inventory to M1911
@@ -823,6 +1342,8 @@ export class GameEngine {
     // Build 3D World & Map Objects
     if (this.activeMapConfig) {
       this.setupCustomMap(this.activeMapConfig);
+    } else if (this.activeOfficialMapId === OFFICIAL_BLIGHTED_WOODS_ID) {
+      this.setupForestLavaMap();
     } else {
       this.scene.environment = this.defaultRoomEnv;
       this.scene.background = new THREE.Color('#101522');
@@ -843,6 +1364,42 @@ export class GameEngine {
     this.startRound(1);
     this.isMapLoaded = true;
     this.onStateUpdate?.();
+  }
+
+  private setupForestLavaMap() {
+    this.scene.environment = this.defaultRoomEnv;
+    this.scene.background = new THREE.Color('#081018');
+    this.scene.fog = new THREE.FogExp2('#081018', 0.022);
+
+    this.ambientLight = new THREE.AmbientLight('#273b4f', 0.2 + this.settings.worldBrightness * 0.45);
+    this.scene.add(this.ambientLight);
+
+    this.playerFlashlight = new THREE.SpotLight('#e5f2ff', 0, 46, Math.PI / 5.5, 0.5, 0.65);
+    this.playerFlashlight.position.set(0.12, -0.1, -0.2);
+    this.camera.add(this.playerFlashlight);
+    this.scene.add(this.playerFlashlight.target);
+    this.applyFlashlightState();
+
+    this.barriers = [];
+    this.barrierMeshes = [];
+    this.explosiveBarrels = [];
+    this.customTeleporters = [];
+    this.sconceLights = [];
+
+    const maxAnisotropy = this.renderer?.capabilities?.getMaxAnisotropy?.() || 4;
+    const state = buildForestLavaMap(this.scene, maxAnisotropy, createWeapon3DModel);
+    this.forestLavaState = state;
+    this.customSolidBoxes = state.solidBoxes;
+    this.customZombieSpawners = state.zombieSpawners;
+
+    this.customSpawnPos.copy(state.playerSpawnPos);
+    this.customSpawnYaw = state.playerSpawnYaw;
+    this.playerPos.copy(state.playerSpawnPos);
+    this.playerVel.set(0, 0, 0);
+    this.isGrounded = true;
+    this.yaw = state.playerSpawnYaw;
+    this.pitch = 0;
+    this.camera.position.copy(this.playerPos);
   }
 
   private setupCustomMap(config: CustomMapConfig) {
@@ -1213,7 +1770,15 @@ export class GameEngine {
     this.isFlashlightOn = true;
 
     this.isMapLoaded = false;
+    this.isFiring = false;
+    this.isBoxSpinning = false;
+    if (this.boxSpinTimeout) {
+      clearTimeout(this.boxSpinTimeout);
+      this.boxSpinTimeout = null;
+    }
     this.activeMapConfig = undefined;
+    this.activeOfficialMapId = OFFICIAL_SECTOR_ZERO_ID;
+    this.forestLavaState = null;
     this.scene.environment = this.defaultRoomEnv;
     this.scene.background = new THREE.Color('#101522');
     this.scene.fog = new THREE.Fog('#101522', 12, 42);
@@ -1697,7 +2262,7 @@ export class GameEngine {
     entityFeetY?: number,
     entityHeight: number = 1.75
   ) {
-    const isCustom = Boolean(this.activeMapConfig);
+    const isCustom = this.usesSolidBoxes;
     const boxes: { minX: number; maxX: number; minZ: number; maxZ: number; minY?: number; maxY?: number }[] = isCustom
       ? this.customSolidBoxes
       : [
@@ -1758,7 +2323,7 @@ export class GameEngine {
     this.gunGroup.remove(this.gunMesh);
 
     const curWep = this.playerWeapons[this.currentWeaponIndex];
-    this.gunMesh = createWeapon3DModel(curWep.stats.type, curWep.stats.isPap);
+    this.gunMesh = createWeapon3DModel(curWep.stats.id || curWep.stats.type, curWep.stats.isPap);
     this.gunGroup.add(this.gunMesh);
   }
 
@@ -1767,27 +2332,30 @@ export class GameEngine {
     // Prevent context menu on container for smooth right-click ADS
     this.container.addEventListener('contextmenu', (e) => e.preventDefault());
 
-    // Mouse Click Lock & Shoot
+    // Mouse Click to Request Pointer Lock
     this.container.addEventListener('click', (e) => {
       if (e.button === 0) {
         if (this.isMapLoaded && !this.isPointerLocked && !this.stats.isGameOver && !this.stats.isPaused) {
           this.container.requestPointerLock();
-        } else if (this.isPointerLocked) {
-          this.shoot();
         }
       }
     });
 
-    // Right-Click Aim Down Sights (ADS)
+    // Left-Click Fire (supports both semi-auto tap and full-auto hold) & Right-Click ADS
     window.addEventListener('mousedown', (e) => {
-      if (e.button === 2 && this.isPointerLocked) {
+      if (e.button === 0 && this.isPointerLocked) {
+        this.isFiring = true;
+        this.shoot();
+      } else if (e.button === 2 && this.isPointerLocked) {
         this.isAiming = true;
         this.onStateUpdate?.();
       }
     });
 
     window.addEventListener('mouseup', (e) => {
-      if (e.button === 2) {
+      if (e.button === 0) {
+        this.isFiring = false;
+      } else if (e.button === 2) {
         this.isAiming = false;
         this.onStateUpdate?.();
       }
@@ -1798,6 +2366,7 @@ export class GameEngine {
       
       // Reset held key states & player velocity so player doesn't get stuck moving on pause/unlock
       this.keys = {};
+      this.isFiring = false;
       this.playerVel.set(0, 0, 0);
 
       if (!this.isPointerLocked) {
@@ -1815,12 +2384,14 @@ export class GameEngine {
 
     window.addEventListener('blur', () => {
       this.keys = {};
+      this.isFiring = false;
       this.playerVel.set(0, 0, 0);
     });
 
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
         this.keys = {};
+        this.isFiring = false;
         this.playerVel.set(0, 0, 0);
       }
     });
@@ -1930,7 +2501,7 @@ export class GameEngine {
     this.shootCooldown = curWep.stats.fireRate * fireRateMod;
 
     // Play Sound
-    soundEngine.playShoot(curWep.stats.type, curWep.stats.isPap);
+    soundEngine.playShoot(curWep.stats.type, curWep.stats.isPap, curWep.stats.id);
 
     // Muzzle Flash Light Trigger
     this.muzzleFlashLight.intensity = 3.5;
@@ -1958,21 +2529,24 @@ export class GameEngine {
       raycaster.setFromCamera(screenCenter, this.camera);
 
       // Spawn physical 3D flying bullet coming out of gun muzzle!
-      this.spawnBulletProjectile(raycaster.ray.direction, curWep.stats.isPap, baseDamage);
+      this.spawnBulletProjectile(raycaster.ray.direction, curWep.stats, baseDamage);
     }
 
     this.onStateUpdate?.();
   }
 
-  private spawnBulletProjectile(dir: THREE.Vector3, isPap: boolean, damage: number) {
+  private spawnBulletProjectile(dir: THREE.Vector3, wepStats: WeaponStats, damage: number) {
     // Exact 3D Muzzle position in world space
     const muzzlePos = new THREE.Vector3();
     this.muzzleFlashLight.getWorldPosition(muzzlePos);
 
-    const bulletColor = isPap ? '#00f0ff' : '#ffcc00';
+    const isPap = wepStats.isPap;
+    const bulletColor = isPap ? wepStats.papColor || '#00f0ff' : wepStats.bulletColor || '#ffcc00';
+    const radiusTop = wepStats.type === 'launcher' ? 0.065 : wepStats.id === 'railgun' ? 0.035 : 0.025;
+    const radiusBot = wepStats.type === 'launcher' ? 0.045 : 0.012;
+    const length = wepStats.type === 'launcher' ? 0.65 : wepStats.id === 'railgun' ? 0.9 : 0.45;
 
-    // Physical 3D Bullet Cylinder
-    const bulletGeo = new THREE.CylinderGeometry(0.025, 0.012, 0.45, 8);
+    const bulletGeo = new THREE.CylinderGeometry(radiusTop, radiusBot, length, 8);
     const bulletMat = new THREE.MeshBasicMaterial({ color: bulletColor });
     const mesh = new THREE.Mesh(bulletGeo, bulletMat);
 
@@ -1984,15 +2558,19 @@ export class GameEngine {
 
     this.scene.add(mesh);
 
-    const speed = 65.0; // Units per second
+    const speed = wepStats.bulletSpeed || 65.0; // Units per second
     const velocity = dir.clone().normalize().multiplyScalar(speed);
 
     this.bullets.push({
       mesh,
       vel: velocity,
-      life: 1.2,
+      life: wepStats.type === 'launcher' ? 2.4 : 1.2,
       isPap,
       damage,
+      splashRadius: wepStats.splashRadius,
+      pierceLeft: wepStats.pierce || 0,
+      hitZombieIds: new Set<string>(),
+      color: bulletColor,
     });
 
     // Muzzle spark burst at gun barrel tip
@@ -2007,6 +2585,54 @@ export class GameEngine {
         new THREE.Vector3((Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4)
       );
       this.particles.push({ mesh: pMesh, velocity: pVel, life: 0.15, maxLife: 0.15, color: bulletColor });
+    }
+  }
+
+  private detonateProjectileSplash(center: THREE.Vector3, radius: number, maxDamage: number, splashColor: string) {
+    if (radius >= 3.5) {
+      soundEngine.playExplosion();
+    }
+
+    const burstCount = radius >= 3.5 ? 24 : 14;
+    for (let i = 0; i < burstCount; i++) {
+      const col = i % 2 === 0 ? splashColor : '#ffffff';
+      const pMesh = new THREE.Mesh(
+        new THREE.BoxGeometry(0.14, 0.14, 0.14),
+        new THREE.MeshBasicMaterial({ color: col })
+      );
+      pMesh.position.copy(center);
+      this.scene.add(pMesh);
+      const vel = new THREE.Vector3(
+        (Math.random() - 0.5) * 9,
+        Math.random() * 6 + 1.5,
+        (Math.random() - 0.5) * 9
+      );
+      this.particles.push({ mesh: pMesh, velocity: vel, life: 0.5, maxLife: 0.5, color: col });
+    }
+
+    let splashKills = 0;
+    for (let i = this.zombies.length - 1; i >= 0; i--) {
+      const z = this.zombies[i];
+      const zCenter = z.meshGroup.position.clone().add(new THREE.Vector3(0, 1.0, 0));
+      const dist = zCenter.distanceTo(center);
+      if (dist <= radius) {
+        const falloff = Math.max(0.35, 1 - dist / (radius * 1.15));
+        z.health -= maxDamage * falloff;
+        this.spawnBloodParticles(zCenter);
+        if (z.health <= 0) {
+          this.scene.remove(z.meshGroup);
+          this.zombies.splice(i, 1);
+          splashKills++;
+          this.stats.kills++;
+          this.addScore(80, 'BLAST KILL!');
+        }
+      }
+    }
+
+    if (splashKills > 0) {
+      soundEngine.playHitmarker(true, false);
+      this.onHitmarker?.(true, false);
+      this.checkRoundCompletion();
     }
   }
 
@@ -2035,45 +2661,57 @@ export class GameEngine {
       const raycaster = new THREE.Raycaster(prevPos, stepVel.clone().normalize(), 0, stepVel.length() + 0.1);
       const intersects = raycaster.intersectObjects(zombieMeshes, true);
 
+      let consumed = false;
+
       if (intersects.length > 0) {
-        const hitObj = intersects[0].object;
-        const hitPoint = intersects[0].point;
+        for (const hit of intersects) {
+          const hitObj = hit.object;
+          const hitPoint = hit.point;
 
-        // Find parent zombie
-        const zombie = this.zombies.find((z) => {
-          let p: THREE.Object3D | null = hitObj;
-          while (p) {
-            if (p === z.meshGroup) return true;
-            p = p.parent;
+          // Find parent zombie
+          const zombie = this.zombies.find((z) => {
+            let p: THREE.Object3D | null = hitObj;
+            while (p) {
+              if (p === z.meshGroup) return true;
+              p = p.parent;
+            }
+            return false;
+          });
+
+          if (!zombie || b.hitZombieIds?.has(zombie.id)) {
+            continue;
           }
-          return false;
-        });
 
-        if (zombie) {
+          b.hitZombieIds?.add(zombie.id);
+
+          if (b.splashRadius && b.splashRadius > 0) {
+            this.detonateProjectileSplash(hitPoint, b.splashRadius, b.damage, b.color || '#ff6600');
+            consumed = true;
+            break;
+          }
+
           let hitMult = 1.0;
           let hitType: 'head' | 'chest' | 'torso' | 'limb' = 'torso';
 
           if (hitObj.name === 'zombieHead') {
-            hitMult = 3.0; // Headshots deal maximum critical damage
+            hitMult = 3.0;
             hitType = 'head';
           } else if (hitObj.name === 'zombieChest') {
-            hitMult = 1.6; // Upper chest vital hit
+            hitMult = 1.6;
             hitType = 'chest';
           } else if (hitObj.name === 'zombieTorso') {
-            hitMult = 1.0; // Standard torso damage
+            hitMult = 1.0;
             hitType = 'torso';
           } else if (hitObj.name.startsWith('zombieArm') || hitObj.name.startsWith('zombieLeg')) {
-            hitMult = 0.6; // Arms and legs deal least amount of damage
+            hitMult = 0.6;
             hitType = 'limb';
           }
 
           const hitDamage = b.damage * hitMult;
           zombie.health -= hitDamage;
 
-          // Blood Splatter Particles at exact hit point
           this.spawnBloodParticles(hitPoint);
 
-          // Hitmarker Audio & UI
           const isKill = zombie.health <= 0;
           const isHeadshot = hitType === 'head';
           soundEngine.playHitmarker(isKill, isHeadshot);
@@ -2106,9 +2744,17 @@ export class GameEngine {
             else if (hitType === 'limb') reason = 'LIMB HIT [0.6x]';
             this.addScore(10, reason);
           }
-        }
 
-        // Remove bullet on zombie hit
+          if (b.pierceLeft && b.pierceLeft > 0) {
+            b.pierceLeft--;
+          } else {
+            consumed = true;
+            break;
+          }
+        }
+      }
+
+      if (consumed) {
         this.scene.remove(b.mesh);
         b.mesh.geometry.dispose();
         (b.mesh.material as THREE.Material).dispose();
@@ -2143,28 +2789,44 @@ export class GameEngine {
       }
 
       // Check if bullet is passing through a window barrier opening
-      const isPassingThroughWindow = this.barriers.some((b) => {
-        const dx = nextPos.x - b.position.x;
-        const dz = nextPos.z - b.position.z;
+      const isPassingThroughWindow = this.barriers.some((bar) => {
+        const dx = nextPos.x - bar.position.x;
+        const dz = nextPos.z - bar.position.z;
         const dist2D = Math.sqrt(dx * dx + dz * dz);
         return dist2D <= 2.2 && nextPos.y >= 0 && nextPos.y <= 3.5;
       });
 
       // Check wall bounds collision
-      const maxRange = this.activeMapConfig ? 120.0 : 28.0;
+      const maxRange = this.usesSolidBoxes ? 300.0 : 28.0;
       const isOutOfBounds =
-        nextPos.y <= 0 ||
-        nextPos.y >= (this.activeMapConfig ? 40.0 : 5.5) ||
+        nextPos.y <= (this.usesSolidBoxes ? -2.0 : 0) ||
+        nextPos.y >= (this.usesSolidBoxes ? 40.0 : 5.5) ||
         Math.abs(nextPos.x) >= maxRange ||
         Math.abs(nextPos.z) >= maxRange;
 
-      const isHittingSolidWall =
-        !this.activeMapConfig &&
+      const isHittingCustomBlock =
+        this.usesSolidBoxes &&
         !isPassingThroughWindow &&
-        (Math.abs(nextPos.x) >= 11.6 || Math.abs(nextPos.z) >= 11.6);
+        this.customSolidBoxes.some(
+          (box) =>
+            nextPos.x >= box.minX &&
+            nextPos.x <= box.maxX &&
+            nextPos.y >= box.minY &&
+            nextPos.y <= box.maxY &&
+            nextPos.z >= box.minZ &&
+            nextPos.z <= box.maxZ
+        );
+
+      const isHittingSolidWall =
+        isHittingCustomBlock ||
+        (!this.usesSolidBoxes &&
+          !isPassingThroughWindow &&
+          (Math.abs(nextPos.x) >= 11.6 || Math.abs(nextPos.z) >= 11.6));
 
       if (isOutOfBounds || isHittingSolidWall) {
-        if (isHittingSolidWall) {
+        if (b.splashRadius && b.splashRadius > 0) {
+          this.detonateProjectileSplash(nextPos, b.splashRadius, b.damage, b.color || '#ff6600');
+        } else if (isHittingSolidWall) {
           this.spawnWallSparks(nextPos, b.isPap);
         }
 
@@ -2333,7 +2995,7 @@ export class GameEngine {
       spawnPos.copy(barrier.position.clone().add(spawnOffset));
       spawnPos.y = 0;
       initialState = 'approaching_window';
-    } else if (!this.activeMapConfig) {
+    } else if (!this.usesSolidBoxes) {
       spawnPos.set((Math.random() - 0.5) * 16, 0, (Math.random() - 0.5) * 16);
       initialState = 'chasing_player';
     } else {
@@ -2524,9 +3186,13 @@ export class GameEngine {
               this.currentPrompt = `PRESS 'E' TO HYPER-FORGE ${curWep.stats.name} [5,000 PTS]`;
               this.interactTargetAction = () => this.packAPunchWeapon();
             }
-          } else if (obj.type === 'mystery_box' && !this.isBoxSpinning) {
-            this.currentPrompt = `PRESS 'E' TO OPEN ARMORY CHEST [950 PTS]`;
-            this.interactTargetAction = () => this.spinMysteryBox();
+          } else if (obj.type === 'mystery_box') {
+            if (this.isBoxSpinning) {
+              this.currentPrompt = `ARMORY CHEST SPINNING...`;
+            } else {
+              this.currentPrompt = `PRESS 'E' TO OPEN ARMORY CHEST [950 PTS]`;
+              this.interactTargetAction = () => this.spinMysteryBox();
+            }
           } else if (obj.type in WALL_BUY_CONFIG) {
             const cfg = WALL_BUY_CONFIG[obj.type];
             const owned = this.playerWeapons.some((w) => w.stats.id === cfg.wepType);
@@ -2552,6 +3218,90 @@ export class GameEngine {
           }
         }
       });
+      } else if (this.activeOfficialMapId === OFFICIAL_BLIGHTED_WOODS_ID && this.forestLavaState) {
+      const fl = this.forestLavaState;
+      const feetY = this.playerPos.y - 1.6;
+
+      // Power Brews in Forest
+      if (playerPos2D.distanceTo(new THREE.Vector2(fl.perkPositions.juggernog.x, fl.perkPositions.juggernog.z)) < 2.6 && !this.perks.juggernog) {
+        this.currentPrompt = `PRESS 'E' FOR TITAN TONIC [2,500 PTS]`;
+        this.interactTargetAction = () => this.buyPerk('juggernog', 2500);
+      } else if (playerPos2D.distanceTo(new THREE.Vector2(fl.perkPositions.speedCola.x, fl.perkPositions.speedCola.z)) < 2.6 && !this.perks.speedCola) {
+        this.currentPrompt = `PRESS 'E' FOR BLITZ BREW [3,000 PTS]`;
+        this.interactTargetAction = () => this.buyPerk('speedCola', 3000);
+      } else if (playerPos2D.distanceTo(new THREE.Vector2(fl.perkPositions.doubleTap.x, fl.perkPositions.doubleTap.z)) < 2.6 && !this.perks.doubleTap) {
+        this.currentPrompt = `PRESS 'E' FOR FURY FIZZ [2,000 PTS]`;
+        this.interactTargetAction = () => this.buyPerk('doubleTap', 2000);
+      }
+
+      // Armory Chest
+      if (playerPos2D.distanceTo(new THREE.Vector2(fl.armoryChestPos.x, fl.armoryChestPos.z)) < 2.6) {
+        if (this.isBoxSpinning) {
+          this.currentPrompt = `ARMORY CHEST SPINNING...`;
+        } else {
+          this.currentPrompt = `PRESS 'E' TO OPEN ARMORY CHEST [950 PTS]`;
+          this.interactTargetAction = () => this.spinMysteryBox();
+        }
+      }
+
+      // Ammo Resupply Crate
+      if (playerPos2D.distanceTo(new THREE.Vector2(fl.ammoCratePos.x, fl.ammoCratePos.z)) < 2.5) {
+        this.currentPrompt = `PRESS 'E' TO REFILL ALL WEAPON AMMO [750 PTS]`;
+        this.interactTargetAction = () => this.buyAmmoCrate();
+      }
+
+      // Stone Ruin Wall Buys
+      fl.wallBuys.forEach((wb) => {
+        if (playerPos2D.distanceTo(new THREE.Vector2(wb.position.x, wb.position.z)) < 2.6) {
+          const owned = this.playerWeapons.some((w) => w.stats.id === wb.type);
+          this.currentPrompt = owned
+            ? `PRESS 'E' TO REFILL ${wb.name} AMMO [${wb.price.toLocaleString()} PTS]`
+            : `PRESS 'E' TO BUY ${wb.name} [${wb.price.toLocaleString()} PTS]`;
+          this.interactTargetAction = () => this.buyWallWeapon(wb.type);
+        }
+      });
+
+      // Hidden Forest Teleporter -> Magma Cavern
+      if (
+        playerPos2D.distanceTo(new THREE.Vector2(fl.forestTeleporterPos.x, fl.forestTeleporterPos.z)) < 2.6 &&
+        Math.abs(feetY - fl.forestTeleporterPos.y) < 1.6
+      ) {
+        if (Date.now() - this.lastTeleportTime >= 2000) {
+          this.currentPrompt = `PRESS 'E' TO ENTER THE MAGMA CAVERN`;
+          this.interactTargetAction = () => this.teleportForestLava('to_lava');
+        } else {
+          this.currentPrompt = `TELEPORTER RECHARGING...`;
+        }
+      }
+
+      // Return Teleporters (Lava Arrival Ledge or Hyper-Forge Altar) -> Blighted Woods
+      const nearArrivalTp =
+        playerPos2D.distanceTo(new THREE.Vector2(fl.lavaArrivalTeleporterPos.x, fl.lavaArrivalTeleporterPos.z)) < 2.4 &&
+        Math.abs(feetY - fl.lavaArrivalTeleporterPos.y) < 1.6;
+      const nearAltarTp =
+        playerPos2D.distanceTo(new THREE.Vector2(fl.lavaAltarTeleporterPos.x, fl.lavaAltarTeleporterPos.z)) < 2.4 &&
+        Math.abs(feetY - fl.lavaAltarTeleporterPos.y) < 1.6;
+
+      if (nearArrivalTp || nearAltarTp) {
+        if (Date.now() - this.lastTeleportTime >= 2000) {
+          this.currentPrompt = `PRESS 'E' TO RETURN TO BLIGHTED WOODS`;
+          this.interactTargetAction = () => this.teleportForestLava('to_forest');
+        } else {
+          this.currentPrompt = `TELEPORTER RECHARGING...`;
+        }
+      }
+
+      // Hyper-Forge Station on the Lava Altar Platform
+      const curWep = this.playerWeapons[this.currentWeaponIndex];
+      if (
+        curWep &&
+        !curWep.stats.isPap &&
+        playerPos2D.distanceTo(new THREE.Vector2(fl.hyperForgePos.x, fl.hyperForgePos.z)) < 2.9 &&
+        Math.abs(feetY - fl.hyperForgePos.y) < 1.8
+      ) {
+        this.currentPrompt = `PRESS 'E' TO HYPER-FORGE ${curWep.stats.name} [5,000 PTS]`;
+        this.interactTargetAction = () => this.packAPunchWeapon();
+      }
     } else {
       // 2. Check Power Brew Machines
       if (playerPos2D.distanceTo(new THREE.Vector2(6, 11.1)) < 2.5 && !this.perks.juggernog) {
@@ -2573,9 +3323,13 @@ export class GameEngine {
       }
 
       // 4. Check Armory Chest (East wall: 11.1, -5)
-      if (playerPos2D.distanceTo(new THREE.Vector2(11.1, -5)) < 2.5 && !this.isBoxSpinning) {
-        this.currentPrompt = `PRESS 'E' TO OPEN ARMORY CHEST [950 PTS]`;
-        this.interactTargetAction = () => this.spinMysteryBox();
+      if (playerPos2D.distanceTo(new THREE.Vector2(11.1, -5)) < 2.5) {
+        if (this.isBoxSpinning) {
+          this.currentPrompt = `ARMORY CHEST SPINNING...`;
+        } else {
+          this.currentPrompt = `PRESS 'E' TO OPEN ARMORY CHEST [950 PTS]`;
+          this.interactTargetAction = () => this.spinMysteryBox();
+        }
       }
 
       // 5. Check Wall Buys
@@ -2651,7 +3405,7 @@ export class GameEngine {
     this.onStateUpdate?.();
   }
 
-  // Spin Mystery Box
+  // Spin Armory Chest (Mystery Box) — pulls from all 29 non-starter guns in arsenal
   private spinMysteryBox() {
     if (this.stats.score < 950 || this.isBoxSpinning) return;
 
@@ -2660,12 +3414,32 @@ export class GameEngine {
     this.boxSpinTimer = 3.0; // 3 seconds cycle
     soundEngine.playPackAPunch();
 
-    setTimeout(() => {
+    if (this.boxSpinTimeout) {
+      clearTimeout(this.boxSpinTimeout);
+    }
+
+    this.boxSpinTimeout = setTimeout(() => {
+      this.boxSpinTimeout = null;
       this.isBoxSpinning = false;
-      // Grant random high tier weapon or Ray Gun!
-      const pool = ['raygun', 'sniper', 'lmg', 'ar', 'shotgun', 'smg'];
+      if (!this.isMapLoaded || this.stats.isGameOver) return;
+
+      const heldIds = new Set(this.playerWeapons.map((w) => w.stats.id));
+      const freshPool = ARMORY_CHEST_POOL.filter((id) => !heldIds.has(id));
+      const pool = freshPool.length > 0 ? freshPool : ARMORY_CHEST_POOL;
       const newWepId = pool[Math.floor(Math.random() * pool.length)];
       this.grantWeapon(newWepId);
+
+      const granted = this.baseWeapons[newWepId];
+      if (granted) {
+        this.scoreNotifications.unshift({
+          id: Math.random().toString(),
+          text: `ARMORY CHEST: ${granted.name.toUpperCase()}!`,
+          points: 0,
+          type: 'repair',
+        });
+        if (this.scoreNotifications.length > 5) this.scoreNotifications.pop();
+        this.onStateUpdate?.();
+      }
     }, 3000);
 
     this.onStateUpdate?.();
@@ -2703,6 +3477,44 @@ export class GameEngine {
     this.lastTeleportTime = now;
     this.playerPos.set(nextTp.x, nextTp.y + 1.6, nextTp.z);
     this.playerVel.set(0, 0, 0);
+    this.camera.position.copy(this.playerPos);
+    soundEngine.playTeleport();
+    this.onStateUpdate?.();
+  }
+
+  private teleportForestLava(dest: 'to_lava' | 'to_forest') {
+    if (!this.forestLavaState) return;
+    this.lastTeleportTime = Date.now();
+    this.playerVel.set(0, 0, 0);
+    this.isGrounded = true;
+
+    if (dest === 'to_lava') {
+      this.playerPos.copy(this.forestLavaState.lavaArrivalSpawnPos);
+      this.yaw = 0;
+      this.pitch = -0.05;
+      this.scene.background = new THREE.Color('#1f0704');
+      this.scene.fog = new THREE.FogExp2('#1f0704', 0.017);
+      this.scoreNotifications.unshift({
+        id: Math.random().toString(),
+        text: 'MAGMA CAVERN — PARKOUR TO HYPER-FORGE!',
+        points: 0,
+        type: 'repair',
+      });
+    } else {
+      this.playerPos.copy(this.forestLavaState.forestReturnSpawnPos);
+      this.yaw = -Math.PI * 0.75;
+      this.pitch = 0;
+      this.scene.background = new THREE.Color('#081018');
+      this.scene.fog = new THREE.FogExp2('#081018', 0.022);
+      this.scoreNotifications.unshift({
+        id: Math.random().toString(),
+        text: 'RETURNED TO BLIGHTED WOODS',
+        points: 0,
+        type: 'repair',
+      });
+    }
+
+    if (this.scoreNotifications.length > 5) this.scoreNotifications.pop();
     this.camera.position.copy(this.playerPos);
     soundEngine.playTeleport();
     this.onStateUpdate?.();
@@ -2773,6 +3585,18 @@ export class GameEngine {
         const flicker = (Math.sin(time * 12 + i * 1.5) * 0.15 + Math.cos(time * 23 + i * 2.1) * 0.1);
         light.intensity = 2.8 + flicker;
       });
+
+      // Animate Blighted Woods campfire, teleporter rings & molten lava cavern
+      if (this.forestLavaState) {
+        const fl = this.forestLavaState;
+        fl.campfireLight.intensity = 3.2 + Math.sin(time * 13) * 0.45 + Math.cos(time * 21) * 0.25;
+        fl.teleporterRings.forEach((r) => {
+          r.rotation.z += delta * 1.8;
+        });
+        fl.lavaMaterial.emissiveIntensity = 1.38 + Math.sin(time * 2.4) * 0.22;
+        fl.lavaTexture.offset.x = (fl.lavaTexture.offset.x + delta * 0.012) % 1;
+        fl.lavaTexture.offset.y = (fl.lavaTexture.offset.y + delta * 0.008) % 1;
+      }
     }
 
     this.renderer.render(this.scene, this.camera);
@@ -2832,11 +3656,25 @@ export class GameEngine {
     // Resolve Map Objects Solid Collision (Walls, Platforms, Pack-a-Punch, Perk Machines, Mystery Box)
     this.resolveMapCollisions(this.playerPos, 0.35, this.playerPos.y - 1.6, 1.75);
 
-    // Room Wall Bounds Collision (-11.2 to +11.2) only for default built-in room
-    if (!this.activeMapConfig) {
+    // Room Wall Bounds Collision (-11.2 to +11.2) for Sector Zero OR natural forest woods perimeter
+    if (!this.usesSolidBoxes) {
       const maxB = 11.2;
       this.playerPos.x = Math.max(-maxB, Math.min(maxB, this.playerPos.x));
       this.playerPos.z = Math.max(-maxB, Math.min(maxB, this.playerPos.z));
+    } else if (this.activeOfficialMapId === OFFICIAL_BLIGHTED_WOODS_ID) {
+      if (this.playerPos.z > -120) {
+        // Forest perimeter dense pine treeline clamp (radius 25.4m)
+        const r = Math.hypot(this.playerPos.x, this.playerPos.z);
+        if (r > 25.4) {
+          const scale = 25.4 / r;
+          this.playerPos.x *= scale;
+          this.playerPos.z *= scale;
+        }
+      } else {
+        // Magma Cavern horizontal safety boundary
+        this.playerPos.x = Math.max(-24, Math.min(24, this.playerPos.x));
+        this.playerPos.z = Math.max(-232, Math.min(-166, this.playerPos.z));
+      }
     }
 
     // Animate First-Person Player Body Leg Swinging when walking
@@ -2849,9 +3687,10 @@ export class GameEngine {
       this.playerLegR.rotation.x = THREE.MathUtils.damp(this.playerLegR.rotation.x, 0, 10, delta);
     }
 
-    // Compute supporting floor height (handles elevated floors/platforms in custom maps)
-    let groundY = 0;
-    if (this.activeMapConfig) {
+    // Compute supporting floor height (handles elevated floors, parkour stepping stones, and lava abyss)
+    let groundY =
+      this.activeOfficialMapId === OFFICIAL_BLIGHTED_WOODS_ID && this.playerPos.z < -120 ? -1.5 : 0;
+    if (this.usesSolidBoxes) {
       const feetY = this.playerPos.y - 1.6;
       for (const b of this.customSolidBoxes) {
         if (
@@ -2889,6 +3728,35 @@ export class GameEngine {
         this.playerVel.y = 0;
         this.isGrounded = true;
       }
+    }
+
+    // Molten Lava Hazard Reset inside Magma Cavern
+    if (
+      this.forestLavaState &&
+      this.activeOfficialMapId === OFFICIAL_BLIGHTED_WOODS_ID &&
+      this.playerPos.z < -120 &&
+      this.playerPos.y - 1.6 <= -0.75
+    ) {
+      this.playerHp -= 40;
+      this.lastDamageTime = Date.now();
+      soundEngine.playPlayerHit();
+      if (this.playerHp <= 0) {
+        this.playerHp = 0;
+        this.stats.isGameOver = true;
+        document.exitPointerLock();
+      } else {
+        this.playerPos.copy(this.forestLavaState.lavaArrivalSpawnPos);
+        this.playerVel.set(0, 0, 0);
+        this.isGrounded = true;
+        this.scoreNotifications.unshift({
+          id: Math.random().toString(),
+          text: 'LAVA BURN! -40 HP',
+          points: 0,
+          type: 'kill',
+        });
+        if (this.scoreNotifications.length > 5) this.scoreNotifications.pop();
+      }
+      this.onStateUpdate?.();
     }
 
     this.camera.position.copy(this.playerPos);
@@ -2953,6 +3821,12 @@ export class GameEngine {
       this.shootCooldown -= delta;
     }
 
+    // Continuous trigger for automatic weapons when holding Left Click
+    const activeWep = this.playerWeapons[this.currentWeaponIndex];
+    if (this.isFiring && this.isPointerLocked && activeWep?.stats.isAuto && !activeWep.isReloading && this.shootCooldown <= 0) {
+      this.shoot();
+    }
+
     // Smooth Recoil & ADS Z-Axis Position Damping
     const targetZ = this.isAiming ? -0.32 : -0.45;
     this.gunGroup.position.z = THREE.MathUtils.damp(this.gunGroup.position.z, targetZ, 14, delta);
@@ -2978,7 +3852,13 @@ export class GameEngine {
   }
 
   private updateZombies(delta: number) {
-    const playerPosVec = new THREE.Vector3(this.playerPos.x, 0, this.playerPos.z);
+    const playerInLava =
+      this.activeOfficialMapId === OFFICIAL_BLIGHTED_WOODS_ID &&
+      this.forestLavaState !== null &&
+      this.playerPos.z < -120;
+    const playerPosVec = playerInLava && this.forestLavaState
+      ? new THREE.Vector3(this.forestLavaState.forestTeleporterPos.x, 0, this.forestLavaState.forestTeleporterPos.z)
+      : new THREE.Vector3(this.playerPos.x, 0, this.playerPos.z);
 
     // Zombie-to-Zombie soft collision separation force (prevents stacking/clipping inside each other)
     for (let i = 0; i < this.zombies.length; i++) {
@@ -3126,7 +4006,17 @@ export class GameEngine {
         const angle = Math.atan2(playerPosVec.x - zPos.x, playerPosVec.z - zPos.z) + Math.PI;
         z.meshGroup.rotation.set(0, angle, 0);
 
-        if (distToPlayer > 1.3) {
+        if (playerInLava && distToPlayer <= 3.2) {
+          z.state = 'chasing_player';
+          if (legL && legR) {
+            legL.rotation.x = 0;
+            legR.rotation.x = 0;
+          }
+          if (armL && armR) {
+            armL.rotation.x = -Math.PI / 3;
+            armR.rotation.x = -Math.PI / 3;
+          }
+        } else if (distToPlayer > 1.3) {
           zPos.addScaledVector(dir, z.speed * delta);
           this.resolveMapCollisions(zPos, 0.45, zPos.y, 1.8);
           z.state = 'chasing_player';
@@ -3140,7 +4030,7 @@ export class GameEngine {
             armL.rotation.x = -Math.PI / 3 + Math.sin(z.walkCycle) * 0.3;
             armR.rotation.x = -Math.PI / 3 - Math.sin(z.walkCycle) * 0.3;
           }
-        } else {
+        } else if (!playerInLava) {
           z.state = 'attacking';
           z.attackTimer += delta;
 
@@ -3200,9 +4090,10 @@ export class GameEngine {
       return;
     }
 
-    // Spawn zombie timer
+    // Spawn zombie timer (pause new forest spawns while player is inside the Magma Cavern)
+    const inLavaCavern = this.activeOfficialMapId === OFFICIAL_BLIGHTED_WOODS_ID && this.playerPos.z < -120;
     this.spawnTimer += delta;
-    if (this.spawnTimer >= 2.5 && this.zombiesToSpawn > 0 && this.zombies.length < 16) {
+    if (!inLavaCavern && this.spawnTimer >= 2.5 && this.zombiesToSpawn > 0 && this.zombies.length < 16) {
       this.spawnTimer = 0;
       this.spawnZombie();
     }
@@ -3210,6 +4101,13 @@ export class GameEngine {
 
   // Reset / Restart Game
   public restartGame() {
+    this.isFiring = false;
+    this.isBoxSpinning = false;
+    if (this.boxSpinTimeout) {
+      clearTimeout(this.boxSpinTimeout);
+      this.boxSpinTimeout = null;
+    }
+
     // Remove all zombies
     this.zombies.forEach((z) => this.scene.remove(z.meshGroup));
     this.zombies = [];
@@ -3231,10 +4129,14 @@ export class GameEngine {
     // Reset player
     this.playerHp = 100;
     this.maxHp = 100;
-    if (this.activeMapConfig) {
+    if (this.activeMapConfig || this.activeOfficialMapId === OFFICIAL_BLIGHTED_WOODS_ID) {
       this.playerPos.copy(this.customSpawnPos);
       this.yaw = this.customSpawnYaw;
       this.pitch = 0;
+      if (this.activeOfficialMapId === OFFICIAL_BLIGHTED_WOODS_ID) {
+        this.scene.background = new THREE.Color('#081018');
+        this.scene.fog = new THREE.FogExp2('#081018', 0.022);
+      }
     } else {
       this.playerPos.set(0, 1.6, 0);
       this.yaw = 0;

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { CustomMapConfig, MapObject, MapObjectType, TexturePattern, getDefaultMapConfig } from '../types/game';
 import { MapEditorEngine } from '../game/MapEditorEngine';
+import { WALL_BUY_CONFIG, WALL_BUY_ITEMS, WallBuyDefinition } from '../data/weapons';
 import {
   Play,
   RotateCcw,
@@ -59,6 +60,7 @@ export const MapMakerView: React.FC<MapMakerViewProps> = ({ onPlayMap, onClose }
   const [saveToast, setSaveToast] = useState(false);
   const [transformMode, setTransformMode] = useState<'translate' | 'rotate' | 'scale'>('translate');
   const [isDarknessPreview, setIsDarknessPreview] = useState(false);
+  const [wallGunCategory, setWallGunCategory] = useState<'all' | WallBuyDefinition['category']>('all');
 
   // Track Export & Import (PolyTrack-style single copyable Base64 string)
   const [showExportModal, setShowExportModal] = useState(false);
@@ -384,29 +386,10 @@ export const MapMakerView: React.FC<MapMakerViewProps> = ({ onPlayMap, onClose }
       name = `Window Barrier ${count}`;
       color = '#5c3a1e';
       scale = { x: 1, y: 1, z: 1 };
-    } else if (type === 'wall_buy_smg') {
-      name = `MP40 Wall Buy ${count}`;
-      color = '#38bdf8';
-      scale = { x: 1, y: 1, z: 1 };
-    } else if (type === 'wall_buy_ar') {
-      name = `VX-44 Wall Buy ${count}`;
-      color = '#ffaa22';
-      scale = { x: 1, y: 1, z: 1 };
-    } else if (type === 'wall_buy_shotgun') {
-      name = `SG-26 Wall Buy ${count}`;
-      color = '#ef4444';
-      scale = { x: 1, y: 1, z: 1 };
-    } else if (type === 'wall_buy_sniper') {
-      name = `SR-50 Sniper Wall Buy ${count}`;
-      color = '#38bdf8';
-      scale = { x: 1, y: 1, z: 1 };
-    } else if (type === 'wall_buy_lmg') {
-      name = `MG42 LMG Wall Buy ${count}`;
-      color = '#f59e0b';
-      scale = { x: 1, y: 1, z: 1 };
-    } else if (type === 'wall_buy_raygun') {
-      name = `Plasma Blaster Wall Buy ${count}`;
-      color = '#22ff66';
+    } else if (type in WALL_BUY_CONFIG) {
+      const wb = WALL_BUY_CONFIG[type];
+      name = `${wb.name} Wall Buy ${count}`;
+      color = wb.color;
       scale = { x: 1, y: 1, z: 1 };
     } else if (type === 'ammo_crate') {
       name = `Ammo Resupply Crate ${count}`;
@@ -689,50 +672,66 @@ export const MapMakerView: React.FC<MapMakerViewProps> = ({ onPlayMap, onClose }
               </button>
             </div>
 
-            <div className="text-[10px] font-bold text-sky-400 pt-1 uppercase tracking-wider">WALL GUNS (BUYABLE)</div>
+            <div className="text-[10px] font-bold text-sky-400 pt-1 uppercase tracking-wider flex items-center justify-between">
+              <span>WALL GUNS (BUYABLE)</span>
+              <span className="text-[9px] text-slate-400">{WALL_BUY_ITEMS.length} GUNS</span>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {(
+                [
+                  ['all', 'ALL'],
+                  ['pistol', 'PISTOL'],
+                  ['smg', 'SMG'],
+                  ['shotgun', 'SHOTGUN'],
+                  ['ar', 'AR'],
+                  ['lmg', 'LMG'],
+                  ['sniper', 'SNIPER'],
+                  ['special', 'SPECIAL'],
+                ] as const
+              ).map(([cat, label]) => (
+                <button
+                  key={cat}
+                  onClick={() => setWallGunCategory(cat)}
+                  className={`px-1.5 py-0.5 rounded text-[9px] font-bold border transition-all cursor-pointer ${
+                    wallGunCategory === cat
+                      ? 'bg-sky-600 text-white border-sky-400'
+                      : 'bg-slate-800/80 text-slate-400 border-slate-700 hover:text-white'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <div className="grid grid-cols-2 gap-1.5">
-              <button
-                onClick={() => handleAddObject('wall_buy_smg')}
-                className="flex items-center gap-1.5 bg-sky-950/60 hover:bg-sky-900/80 border border-sky-700/50 p-2 rounded-lg text-[11px] font-bold text-sky-300 transition-all cursor-pointer"
-                title="MP40 SMG Wall Buy (1,000 PTS)"
-              >
-                <Crosshair className="w-3.5 h-3.5 shrink-0" /> MP40 SMG
-              </button>
-              <button
-                onClick={() => handleAddObject('wall_buy_ar')}
-                className="flex items-center gap-1.5 bg-sky-950/60 hover:bg-sky-900/80 border border-sky-700/50 p-2 rounded-lg text-[11px] font-bold text-amber-300 transition-all cursor-pointer"
-                title="VX-44 Assault Rifle Wall Buy (1,500 PTS)"
-              >
-                <Crosshair className="w-3.5 h-3.5 shrink-0" /> VX-44 AR
-              </button>
-              <button
-                onClick={() => handleAddObject('wall_buy_shotgun')}
-                className="flex items-center gap-1.5 bg-sky-950/60 hover:bg-sky-900/80 border border-sky-700/50 p-2 rounded-lg text-[11px] font-bold text-orange-300 transition-all cursor-pointer"
-                title="SG-26 Shotgun Wall Buy (1,200 PTS)"
-              >
-                <Crosshair className="w-3.5 h-3.5 shrink-0" /> SG-26 SHOTGUN
-              </button>
-              <button
-                onClick={() => handleAddObject('wall_buy_sniper')}
-                className="flex items-center gap-1.5 bg-sky-950/60 hover:bg-sky-900/80 border border-sky-700/50 p-2 rounded-lg text-[11px] font-bold text-cyan-300 transition-all cursor-pointer"
-                title="SR-50 Sniper Wall Buy (2,000 PTS)"
-              >
-                <Crosshair className="w-3.5 h-3.5 shrink-0" /> SR-50 SNIPER
-              </button>
-              <button
-                onClick={() => handleAddObject('wall_buy_lmg')}
-                className="flex items-center gap-1.5 bg-sky-950/60 hover:bg-sky-900/80 border border-sky-700/50 p-2 rounded-lg text-[11px] font-bold text-yellow-300 transition-all cursor-pointer"
-                title="MG42 Heavy LMG Wall Buy (2,500 PTS)"
-              >
-                <Crosshair className="w-3.5 h-3.5 shrink-0" /> MG42 LMG
-              </button>
-              <button
-                onClick={() => handleAddObject('wall_buy_raygun')}
-                className="flex items-center gap-1.5 bg-emerald-950/70 hover:bg-emerald-900/80 border border-emerald-600/60 p-2 rounded-lg text-[11px] font-bold text-emerald-300 transition-all cursor-pointer"
-                title="Plasma Blaster Wall Buy (4,000 PTS)"
-              >
-                <Sparkles className="w-3.5 h-3.5 shrink-0" /> PLASMA BLASTER
-              </button>
+              {WALL_BUY_ITEMS.filter(
+                (item) => wallGunCategory === 'all' || item.category === wallGunCategory
+              ).map((item) => {
+                const isSpecial = item.category === 'special';
+                return (
+                  <button
+                    key={item.objectType}
+                    onClick={() => handleAddObject(item.objectType)}
+                    className={`flex flex-col items-start p-1.5 rounded-lg border transition-all cursor-pointer text-left ${
+                      isSpecial
+                        ? 'bg-emerald-950/70 hover:bg-emerald-900/80 border-emerald-600/60 text-emerald-300'
+                        : 'bg-sky-950/60 hover:bg-sky-900/80 border-sky-700/50 text-sky-200'
+                    }`}
+                    title={`${item.name} Wall Buy (${item.price.toLocaleString()} PTS)`}
+                  >
+                    <div className="flex items-center gap-1 text-[10px] font-bold leading-tight w-full">
+                      {isSpecial ? (
+                        <Sparkles className="w-3 h-3 shrink-0 text-emerald-400" />
+                      ) : (
+                        <Crosshair className="w-3 h-3 shrink-0 text-sky-400" />
+                      )}
+                      <span className="truncate">{item.name}</span>
+                    </div>
+                    <span className="text-[9px] font-extrabold text-amber-300/90 pl-4">
+                      {item.price.toLocaleString()} PTS
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="text-[10px] font-bold text-slate-400 pt-1 uppercase tracking-wider">POWER BREWS & STATIONS</div>

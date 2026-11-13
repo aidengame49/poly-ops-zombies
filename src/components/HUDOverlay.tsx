@@ -5,6 +5,7 @@ import { HowToPlayModal } from './HowToPlayModal';
 import { MapMakerView } from './MapMakerView';
 import { MapSelectModal } from './MapSelectModal';
 import { CustomMapConfig, getDefaultMapConfig } from '../types/game';
+import { OFFICIAL_SECTOR_ZERO_ID, OFFICIAL_BLIGHTED_WOODS_ID, isOfficialMapId } from '../data/officialMaps';
 import { Volume2, VolumeX, Play, RotateCcw, Shield, Zap, Target, Sliders, HelpCircle, Flame, Home, Crosshair, Box, Flashlight } from 'lucide-react';
 import { soundEngine } from '../utils/soundEngine';
 
@@ -91,13 +92,13 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
   const handleStartGame = (mapConfigOverride?: CustomMapConfig | React.MouseEvent) => {
     setActiveModal('none');
     const targetMap = (mapConfigOverride && 'id' in mapConfigOverride) ? mapConfigOverride : selectedMapConfig;
-    const isCustom = targetMap.id !== 'default_der_abandoned';
+    const isCustom = !isOfficialMapId(targetMap.id);
     setIsTestingCustomMap(isCustom);
     engine?.unloadMap();
-    if (isCustom) {
-      engine?.loadMap(targetMap);
-    } else {
+    if (targetMap.id === OFFICIAL_SECTOR_ZERO_ID) {
       engine?.loadMap();
+    } else {
+      engine?.loadMap(targetMap);
     }
     engine?.requestLock();
   };
@@ -151,6 +152,7 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
       {/* Map Select Modal Component */}
       {activeModal === 'map_select' && (
         <MapSelectModal
+          currentMapId={selectedMapConfig.id}
           onSelectMap={(config) => {
             setSelectedMapConfig(config);
             handleStartGame(config);
@@ -428,14 +430,16 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
             <div className="flex-1 bg-slate-900/80 border border-slate-800 rounded-2xl p-6 sm:p-8 flex flex-col justify-between shadow-2xl relative overflow-hidden">
               <div className="space-y-4">
                 <div className="inline-flex items-center gap-2 bg-red-950/60 border border-red-800/40 px-3 py-1 rounded-full text-xs font-bold text-red-400 uppercase">
-                  <Crosshair className="w-3.5 h-3.5" /> {selectedMapConfig.id === 'default_der_abandoned' ? 'FEATURED OFFICIAL MAP' : 'SELECTED COMMUNITY MAP'}
+                  <Crosshair className="w-3.5 h-3.5" /> {isOfficialMapId(selectedMapConfig.id) ? 'FEATURED OFFICIAL MAP' : 'SELECTED COMMUNITY MAP'}
                 </div>
                 <h3 className="text-3xl font-extrabold text-white tracking-wider uppercase">
                   {selectedMapConfig.name}
                 </h3>
                 <p className="text-slate-300 text-sm leading-relaxed">
-                  {selectedMapConfig.id === 'default_der_abandoned'
+                  {selectedMapConfig.id === OFFICIAL_SECTOR_ZERO_ID
                     ? 'Deep inside a forgotten Cold War weapons testing facility, waves of terrifying zombie shamblers breach wooden window barriers. Purchase wall guns, drink Power Brews, and unlock the Hyper-Forge to survive the night.'
+                    : selectedMapConfig.id === OFFICIAL_BLIGHTED_WOODS_ID
+                    ? 'A shadowy moonlit pine forest filled with trees and mossy boulders where zombies emerge from the woods. Track down the hidden Teleporter, warp into the molten Magma Cavern, and parkour across volcanic stepping stones to reach the Hyper-Forge.'
                     : `Custom arena built in Map Maker Studio. Features ${selectedMapConfig.objects.length} 3D objects, ${
                         selectedMapConfig.objects.filter((o) => o.type === 'window_barrier').length
                       } Window Barriers, and ${

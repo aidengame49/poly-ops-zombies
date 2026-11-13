@@ -5,7 +5,8 @@ export interface WeaponStats {
   name: string;
   papName: string;
   isPap: boolean;
-  type: 'pistol' | 'smg' | 'ar' | 'shotgun' | 'sniper' | 'lmg' | 'raygun';
+  type: 'pistol' | 'smg' | 'ar' | 'shotgun' | 'sniper' | 'lmg' | 'raygun' | 'launcher';
+  category?: 'pistol' | 'smg' | 'shotgun' | 'ar' | 'lmg' | 'sniper' | 'special';
   damage: number;
   fireRate: number; // Seconds between shots
   clipSize: number;
@@ -14,6 +15,11 @@ export interface WeaponStats {
   price: number;
   pellets?: number;
   spread?: number;
+  isAuto?: boolean;
+  splashRadius?: number;
+  pierce?: number;
+  bulletColor?: string;
+  bulletSpeed?: number;
   color: string;
   papColor: string;
 }
@@ -108,15 +114,39 @@ export type MapObjectType =
   | 'pack_a_punch'     // Hyper-Forge station
   | 'mystery_box'      // Armory Chest
   | 'window_barrier'   // Window barrier
-  | 'wall_buy_smg'     // MP40 Wall Buy
-  | 'wall_buy_ar'      // VX-44 Wall Buy
-  | 'wall_buy_shotgun' // SG-26 Wall Buy
-  | 'wall_buy_sniper'  // SR-50 Sniper Wall Buy
-  | 'wall_buy_lmg'     // MG42 Heavy LMG Wall Buy
-  | 'wall_buy_raygun'  // Plasma Blaster Wall Buy
+  | 'wall_buy_pistol'           // M1911 Wall Buy
+  | 'wall_buy_revolver'         // Magnum .44 Wall Buy
+  | 'wall_buy_deagle'           // Desert Hawk .50 Wall Buy
+  | 'wall_buy_machine_pistol'   // Viper-9 Auto Wall Buy
+  | 'wall_buy_smg'              // MP40 Wall Buy
+  | 'wall_buy_ump'              // UMP-45 Wall Buy
+  | 'wall_buy_p90'              // P90-XPDW Wall Buy
+  | 'wall_buy_vector'           // KRISS-V9 Wall Buy
+  | 'wall_buy_thompson'         // M1928 Drum Wall Buy
+  | 'wall_buy_ar'               // VX-44 Wall Buy
+  | 'wall_buy_carbine'          // M4A1 Tactical Wall Buy
+  | 'wall_buy_famas'            // FR-556 Bullpup Wall Buy
+  | 'wall_buy_scar'             // SCAR-H Heavy Wall Buy
+  | 'wall_buy_ak74u'            // AK-74u Alpha Wall Buy
+  | 'wall_buy_m14'              // M14 Marksman Wall Buy
+  | 'wall_buy_shotgun'          // SG-26 Wall Buy
+  | 'wall_buy_double_barrel'    // Twin-Coach 12G Wall Buy
+  | 'wall_buy_auto_shotgun'     // Striker-12 Wall Buy
+  | 'wall_buy_spas'             // Tactical-12 Wall Buy
+  | 'wall_buy_sniper'           // SR-50 Sniper Wall Buy
+  | 'wall_buy_barrett'          // AMR-82 .50 Cal Wall Buy
+  | 'wall_buy_bolt_sniper'      // M24 Recon Wall Buy
+  | 'wall_buy_lmg'              // MG42 Heavy LMG Wall Buy
+  | 'wall_buy_rpk'              // RPK-76 Wall Buy
+  | 'wall_buy_minigun'          // Vulcan M134 Minigun Wall Buy
+  | 'wall_buy_rpg'              // RPG-7 Launcher Wall Buy
+  | 'wall_buy_grenade_launcher' // MGL-6 Rotary Wall Buy
+  | 'wall_buy_raygun'           // Plasma Blaster Wall Buy
+  | 'wall_buy_railgun'          // ARC-9 Railgun Wall Buy
+  | 'wall_buy_cryo_cannon'      // Cryo Emitter Wall Buy
   | 'ammo_crate'       // Full Ammo Resupply Crate
   | 'explosive_barrel' // Shootable Explosive Barrel
-  | 'teleporter'       // Aether Teleporter Pad
+  | 'teleporter'       // Warp Teleporter Pad
   | 'crate_cover'      // Tactical Supply Crate Cover
   | 'sandbag_wall'     // Low Sandbag Barricade
   | 'pillar'           // Concrete Structural Pillar

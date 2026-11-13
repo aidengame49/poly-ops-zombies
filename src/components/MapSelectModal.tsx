@@ -1,18 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import { CustomMapConfig, getDefaultMapConfig } from '../types/game';
-import { Crosshair, Map, Trash2, Check, Plus, Box, Shield, Flame, Play, X } from 'lucide-react';
+import { OFFICIAL_SECTOR_ZERO_ID, OFFICIAL_BLIGHTED_WOODS_ID, getBlightedWoodsConfig } from '../data/officialMaps';
+import { Crosshair, Map, Trash2, Check, Plus, Box, Shield, Flame, Play, X, Trees } from 'lucide-react';
 
 interface MapSelectModalProps {
+  currentMapId?: string;
   onSelectMap: (config: CustomMapConfig) => void;
   onOpenMapMaker: () => void;
   onClose: () => void;
 }
 
-export const MapSelectModal: React.FC<MapSelectModalProps> = ({ onSelectMap, onOpenMapMaker, onClose }) => {
+export const MapSelectModal: React.FC<MapSelectModalProps> = ({
+  currentMapId,
+  onSelectMap,
+  onOpenMapMaker,
+  onClose,
+}) => {
   const [customMaps, setCustomMaps] = useState<CustomMapConfig[]>([]);
-  const [selectedId, setSelectedId] = useState<string>('default_der_abandoned');
+  const [selectedId, setSelectedId] = useState<string>(currentMapId || OFFICIAL_SECTOR_ZERO_ID);
 
   const defaultMap = getDefaultMapConfig();
+  const blightedWoodsMap = getBlightedWoodsConfig();
 
   useEffect(() => {
     // Load custom maps list from localStorage
@@ -25,7 +33,7 @@ export const MapSelectModal: React.FC<MapSelectModalProps> = ({ onSelectMap, onO
         const singleMap = localStorage.getItem('custom_zombies_map');
         if (singleMap) {
           const parsed = JSON.parse(singleMap);
-          if (parsed && parsed.id !== defaultMap.id) {
+          if (parsed && parsed.id !== defaultMap.id && parsed.id !== blightedWoodsMap.id) {
             setCustomMaps([parsed]);
             localStorage.setItem('custom_zombies_maps_list', JSON.stringify([parsed]));
           }
@@ -42,11 +50,11 @@ export const MapSelectModal: React.FC<MapSelectModalProps> = ({ onSelectMap, onO
     setCustomMaps(updated);
     localStorage.setItem('custom_zombies_maps_list', JSON.stringify(updated));
     if (selectedId === mapId) {
-      setSelectedId('default_der_abandoned');
+      setSelectedId(OFFICIAL_SECTOR_ZERO_ID);
     }
   };
 
-  const allMaps = [defaultMap, ...customMaps];
+  const allMaps = [defaultMap, blightedWoodsMap, ...customMaps];
   const activeSelectedMap = allMaps.find((m) => m.id === selectedId) || defaultMap;
 
   return (
@@ -78,7 +86,7 @@ export const MapSelectModal: React.FC<MapSelectModalProps> = ({ onSelectMap, onO
 
         {/* Content Body: Grid of Maps */}
         <div className="p-6 flex-1 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Default Map Option: Der Abandoned */}
+          {/* Official Map 1: Sector Zero */}
           <div
             onClick={() => {
               setSelectedId(defaultMap.id);
@@ -119,7 +127,53 @@ export const MapSelectModal: React.FC<MapSelectModalProps> = ({ onSelectMap, onO
             </div>
 
             <div className="mt-6 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-              <span className="font-bold text-red-500">RECOMMENDED FIRST MAP</span>
+              <span className="font-bold text-red-500">MAIN LEVEL 01</span>
+              <span className="text-slate-500">Built-in</span>
+            </div>
+          </div>
+
+          {/* Official Map 2: Blighted Woods */}
+          <div
+            onClick={() => {
+              setSelectedId(blightedWoodsMap.id);
+              onSelectMap(blightedWoodsMap);
+            }}
+            className={`p-5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between relative overflow-hidden ${
+              selectedId === OFFICIAL_BLIGHTED_WOODS_ID
+                ? 'bg-gradient-to-br from-emerald-950/80 via-slate-900 to-orange-950/50 border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.4)] scale-[1.01]'
+                : 'bg-slate-950/60 hover:bg-slate-900 border-slate-800'
+            }`}
+          >
+            {selectedId === OFFICIAL_BLIGHTED_WOODS_ID && (
+              <div className="absolute top-3 right-3 bg-emerald-500 text-slate-950 text-xs font-black px-2.5 py-1 rounded-full flex items-center gap-1">
+                <Check className="w-3.5 h-3.5" /> SELECTED
+              </div>
+            )}
+
+            <div>
+              <div className="inline-flex items-center gap-1.5 bg-emerald-950 border border-emerald-700 px-2.5 py-0.5 rounded-full text-[10px] font-bold text-emerald-400 uppercase tracking-wider mb-2">
+                <Trees className="w-3 h-3" /> OFFICIAL SURVIVAL MAP
+              </div>
+              <h3 className="text-2xl font-extrabold text-white tracking-wider mb-1">BLIGHTED WOODS</h3>
+              <p className="text-slate-300 text-xs leading-relaxed mb-4">
+                Moonlit forest with towering pines &amp; boulders where zombies emerge from the treeline. Find the hidden Teleporter to reach the Magma Cavern and parkour over lava to unlock the Hyper-Forge.
+              </p>
+
+              <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-slate-400">
+                <span className="bg-slate-900 border border-slate-800 px-2 py-1 rounded text-emerald-300">
+                  Forest &amp; Rocks
+                </span>
+                <span className="bg-slate-900 border border-slate-800 px-2 py-1 rounded text-cyan-300">
+                  Hidden Teleporter
+                </span>
+                <span className="bg-slate-900 border border-slate-800 px-2 py-1 rounded text-orange-300">
+                  Lava Parkour
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-6 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+              <span className="font-bold text-emerald-400">MAIN LEVEL 02</span>
               <span className="text-slate-500">Built-in</span>
             </div>
           </div>

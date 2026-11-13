@@ -374,3 +374,189 @@ export function createWallBuyChalkTexture(name: string, price: number): THREE.Ca
   return texture;
 }
 
+export function createForestGroundTexture(anisotropy: number = 4): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d')!;
+
+  // Deep forest loam & moss base
+  ctx.fillStyle = '#182416';
+  ctx.fillRect(0, 0, 512, 512);
+
+  // Mossy grass & damp earth patches
+  for (let i = 0; i < 140; i++) {
+    const cx = Math.random() * 512;
+    const cy = Math.random() * 512;
+    const r = 12 + Math.random() * 34;
+    ctx.fillStyle = i % 3 === 0 ? 'rgba(34, 62, 28, 0.35)' : i % 3 === 1 ? 'rgba(38, 28, 18, 0.38)' : 'rgba(18, 30, 16, 0.35)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Scattered fallen pine needles & twigs
+  for (let i = 0; i < 900; i++) {
+    const x = Math.random() * 512;
+    const y = Math.random() * 512;
+    const ang = Math.random() * Math.PI * 2;
+    const len = 4 + Math.random() * 7;
+    ctx.strokeStyle = i % 4 === 0 ? 'rgba(72, 52, 30, 0.5)' : 'rgba(42, 74, 34, 0.45)';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len);
+    ctx.stroke();
+  }
+
+  // Small stone pebbles
+  ctx.fillStyle = 'rgba(105, 112, 102, 0.25)';
+  for (let i = 0; i < 200; i++) {
+    ctx.fillRect(Math.random() * 512, Math.random() * 512, 2.5, 2.5);
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(16, 16);
+  texture.anisotropy = anisotropy;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+export function createBarkTexture(anisotropy: number = 4): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#362315';
+  ctx.fillRect(0, 0, 256, 256);
+
+  // Vertical bark furrows & highlights
+  for (let x = 0; x < 256; x += 6) {
+    ctx.fillStyle = x % 12 === 0 ? '#24160c' : '#4a311e';
+    ctx.fillRect(x + Math.random() * 2, 0, 3, 256);
+  }
+
+  for (let i = 0; i < 65; i++) {
+    const x = Math.random() * 256;
+    const y = Math.random() * 256;
+    ctx.fillStyle = 'rgba(15, 8, 4, 0.45)';
+    ctx.fillRect(x, y, 4 + Math.random() * 6, 14 + Math.random() * 24);
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(2, 3);
+  texture.anisotropy = anisotropy;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+export function createRockTexture(anisotropy: number = 4, isVolcanic: boolean = false): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = isVolcanic ? '#1e191b' : '#434a4d';
+  ctx.fillRect(0, 0, 256, 256);
+
+  // Craggy facets & mineral blotches
+  for (let i = 0; i < 120; i++) {
+    const cx = Math.random() * 256;
+    const cy = Math.random() * 256;
+    const r = 6 + Math.random() * 22;
+    ctx.fillStyle = isVolcanic
+      ? i % 3 === 0
+        ? 'rgba(46, 30, 30, 0.5)'
+        : 'rgba(14, 10, 12, 0.5)'
+      : i % 3 === 0
+      ? 'rgba(82, 92, 86, 0.45)'
+      : 'rgba(32, 38, 40, 0.45)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Sharp fracture lines
+  ctx.strokeStyle = isVolcanic ? 'rgba(255, 85, 20, 0.22)' : 'rgba(18, 22, 24, 0.5)';
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 24; i++) {
+    const x1 = Math.random() * 256;
+    const y1 = Math.random() * 256;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x1 + (Math.random() - 0.5) * 60, y1 + (Math.random() - 0.5) * 60);
+    ctx.stroke();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(2, 2);
+  texture.anisotropy = anisotropy;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+export function createLavaTexture(anisotropy: number = 4): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d')!;
+
+  // Fiery molten magma gradient base
+  const grad = ctx.createRadialGradient(256, 256, 30, 256, 256, 340);
+  grad.addColorStop(0, '#ffae19');
+  grad.addColorStop(0.45, '#ff4500');
+  grad.addColorStop(1, '#991b00');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 512, 512);
+
+  // Hot swirling bright magma ribbons
+  for (let i = 0; i < 45; i++) {
+    ctx.strokeStyle = i % 2 === 0 ? 'rgba(255, 225, 90, 0.7)' : 'rgba(255, 110, 10, 0.65)';
+    ctx.lineWidth = 5 + Math.random() * 10;
+    ctx.beginPath();
+    const x = Math.random() * 512;
+    const y = Math.random() * 512;
+    ctx.moveTo(x, y);
+    ctx.bezierCurveTo(
+      x + (Math.random() - 0.5) * 140,
+      y + (Math.random() - 0.5) * 140,
+      x + (Math.random() - 0.5) * 140,
+      y + (Math.random() - 0.5) * 140,
+      x + (Math.random() - 0.5) * 180,
+      y + (Math.random() - 0.5) * 180
+    );
+    ctx.stroke();
+  }
+
+  // Cooled dark basalt crust islands floating atop the magma
+  for (let i = 0; i < 55; i++) {
+    const cx = Math.random() * 512;
+    const cy = Math.random() * 512;
+    const rx = 14 + Math.random() * 30;
+    const ry = 10 + Math.random() * 24;
+    ctx.fillStyle = i % 3 === 0 ? '#1b0b07' : '#2a120b';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, Math.random() * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 90, 0, 0.75)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(7, 8);
+  texture.anisotropy = anisotropy;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+

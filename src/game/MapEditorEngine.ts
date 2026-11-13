@@ -11,6 +11,7 @@ import {
   createMysteryBoxTexture,
 } from '../utils/proceduralTextures';
 import { createCustomPropMesh } from './GameEngine';
+import { WALL_BUY_CONFIG } from '../data/weapons';
 
 export class MapEditorEngine {
   public container: HTMLDivElement;
@@ -426,12 +427,7 @@ export class MapEditorEngine {
         group.add(p);
       });
     } else if (
-      obj.type === 'wall_buy_smg' ||
-      obj.type === 'wall_buy_ar' ||
-      obj.type === 'wall_buy_shotgun' ||
-      obj.type === 'wall_buy_sniper' ||
-      obj.type === 'wall_buy_lmg' ||
-      obj.type === 'wall_buy_raygun' ||
+      obj.type in WALL_BUY_CONFIG ||
       obj.type === 'ammo_crate' ||
       obj.type === 'explosive_barrel' ||
       obj.type === 'teleporter' ||

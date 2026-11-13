@@ -32,49 +32,73 @@ class SoundEngine {
     this.masterVolume = Math.max(0, Math.min(1, vol));
   }
 
-  // Shoot sound based on weapon type and PaP state
-  public playShoot(type: string, isPap: boolean = false) {
+  // Shoot sound based on weapon type, PaP state, and optional weapon ID
+  public playShoot(type: string, isPap: boolean = false, weaponId?: string) {
     if (this.isMuted) return;
     this.initCtx();
     if (!this.ctx) return;
 
     const now = this.ctx.currentTime;
 
-    if (isPap || type === 'raygun') {
-      // Plasma / Laser beam shoot sound
+    if (weaponId === 'railgun' || weaponId === 'cryo_cannon' || isPap || type === 'raygun') {
+      // Plasma / Railgun / Cryo beam shoot sound
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
-      
-      osc.type = type === 'raygun' ? 'sawtooth' : 'sine';
-      const startFreq = isPap ? 1200 : 800;
-      const endFreq = isPap ? 200 : 150;
-      
-      osc.frequency.setValueAtTime(startFreq, now);
-      osc.frequency.exponentialRampToValueAtTime(endFreq, now + 0.15);
 
-      gain.gain.setValueAtTime(0.3, now);
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+      osc.type = weaponId === 'railgun' ? 'square' : type === 'raygun' ? 'sawtooth' : 'sine';
+      const startFreq = weaponId === 'railgun' ? 1600 : weaponId === 'cryo_cannon' ? 1050 : isPap ? 1200 : 800;
+      const endFreq = weaponId === 'railgun' ? 90 : isPap ? 200 : 150;
+
+      osc.frequency.setValueAtTime(startFreq, now);
+      osc.frequency.exponentialRampToValueAtTime(endFreq, now + 0.16);
+
+      gain.gain.setValueAtTime(0.28 * this.masterVolume, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.16);
 
       osc.connect(gain);
       gain.connect(this.ctx.destination);
       osc.start(now);
-      osc.stop(now + 0.15);
+      osc.stop(now + 0.16);
+      return;
+    }
+
+    if (type === 'launcher') {
+      // Heavy launcher thump + whoosh
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(190, now);
+      osc.frequency.exponentialRampToValueAtTime(45, now + 0.28);
+      gain.gain.setValueAtTime(0.45 * this.masterVolume, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.28);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.28);
       return;
     }
 
     // Standard Bullet Guns
-    const noiseBuffer = this.createNoiseBuffer(0.12);
+    const noiseBuffer = this.createNoiseBuffer(0.35);
     const noiseSource = this.ctx.createBufferSource();
     noiseSource.buffer = noiseBuffer;
 
     const noiseFilter = this.ctx.createBiquadFilter();
     noiseFilter.type = 'lowpass';
-    
+
     let duration = 0.1;
     let freq = 1000;
     let volume = 0.3;
 
-    if (type === 'shotgun') {
+    if (weaponId === 'revolver' || weaponId === 'deagle') {
+      duration = 0.22;
+      freq = 1350;
+      volume = 0.45;
+    } else if (weaponId === 'minigun') {
+      duration = 0.065;
+      freq = 1200;
+      volume = 0.26;
+    } else if (type === 'shotgun') {
       duration = 0.25;
       freq = 600;
       volume = 0.5;
@@ -100,7 +124,7 @@ class SoundEngine {
     noiseFilter.frequency.exponentialRampToValueAtTime(100, now + duration);
 
     const gainNode = this.ctx.createGain();
-    gainNode.gain.setValueAtTime(volume, now);
+    gainNode.gain.setValueAtTime(volume * this.masterVolume, now);
     gainNode.gain.exponentialRampToValueAtTime(0.01, now + duration);
 
     noiseSource.connect(noiseFilter);
