@@ -198,6 +198,15 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
       if (inviteRoom) {
         setActiveModal('multiplayer');
         multiplayerClient.joinRoom(inviteRoom);
+        try {
+          const url = new URL(window.location.href);
+          if (url.searchParams.has('roomId')) {
+            url.searchParams.delete('roomId');
+            window.history.replaceState({}, '', url.toString());
+          }
+        } catch {
+          // Ignore
+        }
       } else if (crazyGames.isInstantMultiplayer) {
         setActiveModal('multiplayer');
         multiplayerClient.createRoom({

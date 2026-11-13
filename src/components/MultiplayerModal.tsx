@@ -56,6 +56,9 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
   useEffect(() => {
     multiplayerClient.connect();
     multiplayerClient.setLoadout(playerLoadout);
+    if (multiplayerClient.isConnected) {
+      multiplayerClient.requestPublicRooms();
+    }
 
     const unsub = multiplayerClient.subscribe(() => {
       setTick((t) => t + 1);
@@ -82,7 +85,10 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
   const incomingRequests = multiplayerClient.incomingRequests;
   const outgoingRequests = multiplayerClient.outgoingRequests;
   const roomInvites = multiplayerClient.roomInvites;
+  const publicRooms = multiplayerClient.publicRooms;
+  const onlineCount = multiplayerClient.onlinePlayerCount;
   const lastNotice = multiplayerClient.lastNotice;
+  const lastError = multiplayerClient.lastError;
   const connStatus = multiplayerClient.connectionStatus;
 
   const availableMaps = useMemo(() => {
@@ -229,9 +235,11 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                 {connStatus === 'connected'
                   ? isCgMode
                     ? 'CrazyGames Multiplayer Network Online'
-                    : 'Poly-Ops Co-Op Network Online'
+                    : `Poly-Ops Co-Op Network Online · ${Math.max(1, onlineCount)} Online`
                   : connStatus === 'connecting'
                   ? 'Connecting to Multiplayer Server...'
+                  : connStatus === 'error'
+                  ? 'Connection Failed — Click Reconnect or Check Server'
                   : 'Disconnected — Click Reconnect'}
               </p>
             </div>
@@ -264,36 +272,43 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
           </div>
         </div>
 
-        {/* Optional Server Override Bar (Standalone Mode Only) */}
-        {!isCgMode && showServerConfig && (
-          <div className="bg-slate-950/90 border-b border-slate-800 px-4 sm:px-6 py-2.5 flex flex-wrap items-center gap-2.5 shrink-0">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              Server URL (optional for static CDN builds):
-            </span>
-            <input
-              type="text"
-              value={serverUrlInput}
-              onChange={(e) => setServerUrlInput(e.target.value)}
-              placeholder="Same-origin (/ws) or https://your-server.run.app"
-              className="flex-1 min-w-[200px] bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-cyan-500"
-            />
-            <button
-              onClick={() => multiplayerClient.setCustomServerUrl(serverUrlInput)}
-              className="px-3.5 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-extrabold text-xs rounded-lg cursor-pointer"
-            >
-              CONNECT
-            </button>
-            {multiplayerClient.customServerUrl && (
-              <button
-                onClick={() => {
-                  setServerUrlInput('');
-                  multiplayerClient.setCustomServerUrl('');
-                }}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-lg cursor-pointer"
-              >
-                USE DEFAULT
-              </button>
+        {/* Server Diagnostic & Override Bar (Standalone Mode Only) */}
+        {!isCgMode && (showServerConfig || connStatus === 'error' || multiplayerClient.isStaticHostDetected) && (
+          <div className="bg-slate-950/90 border-b border-slate-800 px-4 sm:px-6 py-2.5 flex flex-col gap-2 shrink-0">
+            {lastError && connStatus !== 'connected' && (
+              <div className="text-xs font-bold text-amber-300 bg-amber-950/40 border border-amber-700/60 rounded-lg px-3 py-1.5">
+                {lastError}
+              </div>
             )}
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                Server URL ({multiplayerClient.resolvedServerUrl}):
+              </span>
+              <input
+                type="text"
+                value={serverUrlInput}
+                onChange={(e) => setServerUrlInput(e.target.value)}
+                placeholder="Same-origin (/ws) or https://your-server.run.app"
+                className="flex-1 min-w-[200px] bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-cyan-500"
+              />
+              <button
+                onClick={() => multiplayerClient.setCustomServerUrl(serverUrlInput)}
+                className="px-3.5 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-extrabold text-xs rounded-lg cursor-pointer"
+              >
+                CONNECT
+              </button>
+              {multiplayerClient.customServerUrl && (
+                <button
+                  onClick={() => {
+                    setServerUrlInput('');
+                    multiplayerClient.setCustomServerUrl('');
+                  }}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-lg cursor-pointer"
+                >
+                  USE DEFAULT
+                </button>
+              )}
+            </div>
           </div>
         )}
 
@@ -555,6 +570,62 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                       JOIN ROOM
                     </button>
                   </form>
+
+                  {/* Open Public Squads Browser (Standalone Mode) */}
+                  {!isCgMode && (
+                    <div className="pt-3 border-t border-slate-800 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-extrabold tracking-wider text-slate-300 uppercase flex items-center gap-1.5">
+                          <Globe className="w-3.5 h-3.5 text-emerald-400" />
+                          OPEN PUBLIC SQUADS ({publicRooms.length})
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => multiplayerClient.requestPublicRooms()}
+                          disabled={!multiplayerClient.isConnected}
+                          className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 border border-slate-700 rounded-lg text-[11px] font-bold text-cyan-300 flex items-center gap-1 cursor-pointer"
+                        >
+                          <RefreshCw className="w-3 h-3" /> REFRESH
+                        </button>
+                      </div>
+
+                      {publicRooms.length === 0 ? (
+                        <div className="bg-slate-900/50 border border-dashed border-slate-800 rounded-xl px-3.5 py-3 text-xs text-slate-400 font-semibold text-center">
+                          No open public squads right now — click <strong className="text-cyan-300">Create Squad Room</strong> or <strong className="text-red-400">Quick Play</strong> to start one!
+                        </div>
+                      ) : (
+                        <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                          {publicRooms.map((r) => (
+                            <div
+                              key={r.roomId}
+                              className="bg-slate-900/80 border border-slate-800 hover:border-cyan-500/40 rounded-xl px-3.5 py-2 flex items-center justify-between gap-2"
+                            >
+                              <div className="min-w-0">
+                                <div className="text-xs sm:text-sm font-extrabold text-white truncate">
+                                  {r.hostName}&apos;s Squad{' '}
+                                  <span className="font-mono text-cyan-400 text-[11px]">({r.roomId})</span>
+                                </div>
+                                <div className="text-[11px] text-slate-400 font-semibold truncate">
+                                  Map: <span className="text-slate-200 uppercase">{r.mapName}</span> ·{' '}
+                                  <span className="text-emerald-400 font-bold">
+                                    {r.memberCount}/{r.maxMembers} Operators
+                                  </span>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                disabled={!multiplayerClient.isConnected}
+                                onClick={() => multiplayerClient.joinRoom(r.roomId)}
+                                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-extrabold rounded-lg shrink-0 cursor-pointer"
+                              >
+                                JOIN
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ) : (
                 /* Active Room Squad Roster */

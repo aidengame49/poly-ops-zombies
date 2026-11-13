@@ -15,6 +15,7 @@ import type {
   NetSpawnerPos,
   NetZombieState,
   MultiplayerRoomState,
+  PublicRoomSummary,
   ServerToClientMessage,
 } from './src/types/multiplayer.ts';
 import type { CustomMapConfig, PlayerLoadout } from './src/types/game.ts';
@@ -120,7 +121,8 @@ function sanitizeMapName(name: string | undefined | null): string {
 function getOrCreateProfile(
   authToken: string,
   requestedName?: string,
-  crazyGamesUsername?: string | null
+  crazyGamesUsername?: string | null,
+  preferredPlayerId?: string
 ): StoredProfile {
   const cleanToken = (authToken || '').trim().slice(0, 128) || `anon_${Math.random().toString(36).slice(2)}`;
   const cgClean = crazyGamesUsername ? crazyGamesUsername.trim() : null;
@@ -145,7 +147,11 @@ function getOrCreateProfile(
     return profile;
   }
 
-  const playerId = generateUniqueNumericPlayerId();
+  const cleanPrefId = (preferredPlayerId || '').replace(/\D/g, '');
+  const playerId =
+    cleanPrefId.length === 8 && !socialDb.profilesById[cleanPrefId]
+      ? cleanPrefId
+      : generateUniqueNumericPlayerId();
   const displayName = sanitizeDisplayName(crazyGamesUsername || requestedName, playerId);
   const created: StoredProfile = {
     playerId,
@@ -177,6 +183,7 @@ interface ClientSession {
   playerId: string | null;
   roomId: string | null;
   loadout: PlayerLoadout;
+  isAlive: boolean;
 }
 
 interface RoomInternal {
@@ -324,6 +331,40 @@ function broadcastToRoom(room: RoomInternal, msg: ServerToClientMessage, exclude
   }
 }
 
+function getPublicRoomsList(): PublicRoomSummary[] {
+  const list: PublicRoomSummary[] = [];
+  for (const room of rooms.values()) {
+    if (room.isPublic && room.isJoinable && room.status === 'lobby' && room.members.size < 4) {
+      const hostMember = room.members.get(room.hostPlayerId);
+      list.push({
+        roomId: room.roomId,
+        hostName: hostMember?.displayName || `Operator #${room.hostPlayerId.slice(-4)}`,
+        mapId: room.mapId,
+        mapName: room.mapName,
+        memberCount: room.members.size,
+        maxMembers: 4,
+      });
+    }
+  }
+  return list.sort((a, b) => b.memberCount - a.memberCount);
+}
+
+let broadcastRoomsTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleBroadcastPublicRooms() {
+  if (broadcastRoomsTimer) return;
+  broadcastRoomsTimer = setTimeout(() => {
+    broadcastRoomsTimer = null;
+    const payload: ServerToClientMessage = {
+      type: 'rooms:publicList',
+      rooms: getPublicRoomsList(),
+      onlineCount: onlineByPlayerId.size,
+    };
+    for (const sess of onlineByPlayerId.values()) {
+      sendMsg(sess.ws, payload);
+    }
+  }, 150);
+}
+
 function generateRoomCode(preferred?: string): string {
   const cleanPref = (preferred || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24);
   if (cleanPref.length >= 3 && !rooms.has(cleanPref)) {
@@ -469,6 +510,7 @@ function leaveCurrentRoom(sess: ClientSession) {
   sendMsg(sess.ws, { type: 'room:state', room: null });
   notifyFriendsPresenceChanged(leavingId);
   pushSocialSync(leavingId);
+  scheduleBroadcastPublicRooms();
 }
 
 function startRoomRound(room: RoomInternal, roundNum: number) {
@@ -863,16 +905,42 @@ async function bootstrap() {
   const server = http.createServer(app);
   const wss = new WebSocketServer({ server, path: '/ws' });
 
+  // Protocol-level keepalive interval so cloud proxies / idle mobile connections stay clean
+  setInterval(() => {
+    for (const sess of sessions) {
+      if (!sess.isAlive) {
+        try {
+          sess.ws.terminate();
+        } catch {
+          // Ignore
+        }
+        continue;
+      }
+      sess.isAlive = false;
+      try {
+        sess.ws.ping();
+      } catch {
+        // Ignore
+      }
+    }
+  }, 25000);
+
   wss.on('connection', (ws) => {
     const sess: ClientSession = {
       ws,
       playerId: null,
       roomId: null,
       loadout: { ...DEFAULT_LOADOUT },
+      isAlive: true,
     };
     sessions.add(sess);
 
+    ws.on('pong', () => {
+      sess.isAlive = true;
+    });
+
     ws.on('message', (raw) => {
+      sess.isAlive = true;
       let msg: ClientToServerMessage;
       try {
         msg = JSON.parse(raw.toString()) as ClientToServerMessage;
@@ -880,8 +948,18 @@ async function bootstrap() {
         return;
       }
 
+      if (msg.type === 'ping') {
+        sendMsg(ws, { type: 'pong', onlineCount: onlineByPlayerId.size });
+        return;
+      }
+
       if (msg.type === 'auth:hello') {
-        const profile = getOrCreateProfile(msg.authToken, msg.requestedName, msg.crazyGamesUsername);
+        const profile = getOrCreateProfile(
+          msg.authToken,
+          msg.requestedName,
+          msg.crazyGamesUsername,
+          msg.preferredPlayerId
+        );
         const previousSess = onlineByPlayerId.get(profile.playerId);
         if (previousSess && previousSess !== sess) {
           leaveCurrentRoom(previousSess);
@@ -907,8 +985,11 @@ async function bootstrap() {
           friends: buildFriendsList(profile),
           incomingRequests: profile.incomingRequests,
           outgoingRequests: profile.outgoingRequests,
+          onlineCount: onlineByPlayerId.size,
+          publicRooms: getPublicRoomsList(),
         });
         notifyFriendsPresenceChanged(profile.playerId);
+        scheduleBroadcastPublicRooms();
         return;
       }
 
@@ -917,6 +998,14 @@ async function bootstrap() {
       if (!myProfile) return;
 
       switch (msg.type) {
+        case 'rooms:list': {
+          sendMsg(ws, {
+            type: 'rooms:publicList',
+            rooms: getPublicRoomsList(),
+            onlineCount: onlineByPlayerId.size,
+          });
+          break;
+        }
         case 'profile:setName': {
           myProfile.displayName = sanitizeDisplayName(msg.displayName, myProfile.playerId);
           scheduleSaveDb();
@@ -1112,6 +1201,7 @@ async function bootstrap() {
           sess.roomId = roomId;
           sendMsg(ws, { type: 'room:state', room: serializeRoom(newRoom) });
           notifyRoomMembersPresence(newRoom);
+          scheduleBroadcastPublicRooms();
           break;
         }
 
@@ -1158,6 +1248,7 @@ async function bootstrap() {
           const serialized = serializeRoom(targetRoom);
           broadcastToRoom(targetRoom, { type: 'room:state', room: serialized });
           notifyRoomMembersPresence(targetRoom);
+          scheduleBroadcastPublicRooms();
           break;
         }
 
@@ -1179,6 +1270,7 @@ async function bootstrap() {
             const serialized = serializeRoom(openRoom);
             broadcastToRoom(openRoom, { type: 'room:state', room: serialized });
             notifyRoomMembersPresence(openRoom);
+            scheduleBroadcastPublicRooms();
           } else {
             const roomId = generateRoomCode();
             const member = createMemberEntry(myProfile, true, sess.loadout, 0);
@@ -1210,6 +1302,7 @@ async function bootstrap() {
             sess.roomId = roomId;
             sendMsg(ws, { type: 'room:state', room: serializeRoom(created) });
             notifyRoomMembersPresence(created);
+            scheduleBroadcastPublicRooms();
           }
           break;
         }
@@ -1251,6 +1344,7 @@ async function bootstrap() {
           room.customMapConfig = msg.customMapConfig;
           broadcastToRoom(room, { type: 'room:state', room: serializeRoom(room) });
           notifyRoomMembersPresence(room);
+          scheduleBroadcastPublicRooms();
           break;
         }
 
@@ -1268,6 +1362,7 @@ async function bootstrap() {
           }
           broadcastToRoom(room, { type: 'room:state', room: serializeRoom(room) });
           notifyRoomMembersPresence(room);
+          scheduleBroadcastPublicRooms();
           break;
         }
 
@@ -1328,6 +1423,7 @@ async function bootstrap() {
             zombies: room.zombies,
           });
           notifyRoomMembersPresence(room);
+          scheduleBroadcastPublicRooms();
           break;
         }
 
@@ -1605,6 +1701,7 @@ async function bootstrap() {
         onlineByPlayerId.delete(pid);
         leaveCurrentRoom(sess);
         notifyFriendsPresenceChanged(pid);
+        scheduleBroadcastPublicRooms();
       }
     });
   });

@@ -81,6 +81,7 @@ export const STORAGE_KEYS = {
   CUSTOM_MAP_DRAFT: 'custom_zombies_map',
   CUSTOM_MAPS_LIST: 'custom_zombies_maps_list',
   MP_TOKEN: 'polyops_mp_token',
+  MP_PLAYER_ID: 'polyops_mp_player_id',
   MP_NAME: 'polyops_mp_name',
   MP_SERVER: 'polyops_mp_server',
   DEVICE_MODE: 'polyops_device_mode',
@@ -595,6 +596,10 @@ class CrazyGamesBridge {
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
       url.searchParams.set('roomId', roomId);
+      const savedMpServer = window.localStorage.getItem(STORAGE_KEYS.MP_SERVER);
+      if (savedMpServer && savedMpServer.trim() && !url.searchParams.get('mpServer')) {
+        url.searchParams.set('mpServer', savedMpServer.trim());
+      }
       return url.toString();
     }
     return `?roomId=${encodeURIComponent(roomId)}`;

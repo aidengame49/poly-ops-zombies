@@ -100,6 +100,15 @@ export interface NetSpawnerPos {
   z: number;
 }
 
+export interface PublicRoomSummary {
+  roomId: string;
+  hostName: string;
+  mapId: string;
+  mapName: string;
+  memberCount: number;
+  maxMembers: number;
+}
+
 export interface MultiplayerRoomState {
   roomId: string;
   hostPlayerId: string;
@@ -122,9 +131,16 @@ export type ClientToServerMessage =
   | {
       type: 'auth:hello';
       authToken: string;
+      preferredPlayerId?: string;
       requestedName?: string;
       crazyGamesUsername?: string | null;
       loadout?: PlayerLoadout;
+    }
+  | {
+      type: 'ping';
+    }
+  | {
+      type: 'rooms:list';
     }
   | {
       type: 'profile:setName';
@@ -268,11 +284,22 @@ export type ClientToServerMessage =
 
 export type ServerToClientMessage =
   | {
+      type: 'pong';
+      onlineCount: number;
+    }
+  | {
       type: 'auth:welcome';
       profile: PlayerProfile;
       friends: FriendEntry[];
       incomingRequests: FriendRequestEntry[];
       outgoingRequests: string[];
+      onlineCount?: number;
+      publicRooms?: PublicRoomSummary[];
+    }
+  | {
+      type: 'rooms:publicList';
+      rooms: PublicRoomSummary[];
+      onlineCount: number;
     }
   | {
       type: 'social:sync';
