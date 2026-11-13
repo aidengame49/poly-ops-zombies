@@ -437,6 +437,97 @@ class SoundEngine {
     osc.stop(now + 0.04);
   }
 
+  public playGrenadeThrow() {
+    if (this.isMuted) return;
+    this.initCtx();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    const noiseBuffer = this.createNoiseBuffer(0.14);
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = noiseBuffer;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(900, now);
+    filter.frequency.exponentialRampToValueAtTime(320, now + 0.14);
+
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.24 * this.masterVolume, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.14);
+
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.ctx.destination);
+    noise.start(now);
+    noise.stop(now + 0.14);
+  }
+
+  public playFlashbang() {
+    if (this.isMuted) return;
+    this.initCtx();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    // Sharp concussive crack
+    const noiseBuffer = this.createNoiseBuffer(0.45);
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = noiseBuffer;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.setValueAtTime(1200, now);
+
+    const crackGain = this.ctx.createGain();
+    crackGain.gain.setValueAtTime(0.6 * this.masterVolume, now);
+    crackGain.gain.exponentialRampToValueAtTime(0.01, now + 0.42);
+
+    noise.connect(filter);
+    filter.connect(crackGain);
+    crackGain.connect(this.ctx.destination);
+    noise.start(now);
+    noise.stop(now + 0.42);
+
+    // High-pitched flashbang ring fade
+    const ring = this.ctx.createOscillator();
+    const ringGain = this.ctx.createGain();
+    ring.type = 'sine';
+    ring.frequency.setValueAtTime(3400, now);
+    ring.frequency.exponentialRampToValueAtTime(2600, now + 0.9);
+    ringGain.gain.setValueAtTime(0.14 * this.masterVolume, now);
+    ringGain.gain.exponentialRampToValueAtTime(0.002, now + 0.9);
+    ring.connect(ringGain);
+    ringGain.connect(this.ctx.destination);
+    ring.start(now);
+    ring.stop(now + 0.9);
+  }
+
+  public playCryoExplosion() {
+    if (this.isMuted) return;
+    this.initCtx();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    const noiseBuffer = this.createNoiseBuffer(0.5);
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = noiseBuffer;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(2600, now);
+    filter.frequency.exponentialRampToValueAtTime(750, now + 0.48);
+
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.42 * this.masterVolume, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.48);
+
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.ctx.destination);
+    noise.start(now);
+    noise.stop(now + 0.48);
+  }
+
   private createNoiseBuffer(duration: number): AudioBuffer {
     if (!this.ctx) throw new Error('AudioContext not ready');
     const bufferSize = this.ctx.sampleRate * duration;

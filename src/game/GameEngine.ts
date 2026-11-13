@@ -12,12 +12,17 @@ import {
   CustomMapConfig,
   MapObject,
   MapObjectType,
+  GrenadeType,
+  PlayerLoadout,
 } from '../types/game';
 import { soundEngine } from '../utils/soundEngine';
 import {
   WEAPONS_MAP,
   ARMORY_CHEST_POOL,
   WALL_BUY_CONFIG,
+  DEFAULT_LOADOUT,
+  GRENADES_MAP,
+  sanitizeLoadout,
 } from '../data/weapons';
 import {
   createFloorTexture,
@@ -1076,8 +1081,13 @@ export class GameEngine {
   private baseWeapons: Record<string, WeaponStats> = { ...WEAPONS_MAP };
 
   // Player State
+  public playerLoadout: PlayerLoadout = { ...DEFAULT_LOADOUT };
   public playerWeapons: PlayerWeapon[] = [];
   public currentWeaponIndex: number = 0;
+  public grenadeCount: number = GRENADES_MAP[DEFAULT_LOADOUT.grenadeType].startCount;
+  public maxGrenades: number = GRENADES_MAP[DEFAULT_LOADOUT.grenadeType].maxCount;
+  public flashScreenAlpha: number = 0;
+  private throwCooldown: number = 0;
   public playerHp: number = 100;
   public maxHp: number = 100;
   private lastDamageTime: number = 0;
@@ -1117,6 +1127,19 @@ export class GameEngine {
     pierceLeft?: number;
     hitZombieIds?: Set<string>;
     color?: string;
+  }[] = [];
+  private thrownGrenades: {
+    type: GrenadeType;
+    mesh: THREE.Group;
+    vel: THREE.Vector3;
+    fuse: number;
+  }[] = [];
+  private burnZones: {
+    mesh: THREE.Mesh;
+    position: THREE.Vector3;
+    radius: number;
+    life: number;
+    tickTimer: number;
   }[] = [];
   private isFiring: boolean = false;
 
@@ -1313,6 +1336,51 @@ export class GameEngine {
     return Boolean(this.activeMapConfig) || this.activeOfficialMapId === OFFICIAL_BLIGHTED_WOODS_ID;
   }
 
+  public setLoadout(loadout: Partial<PlayerLoadout>) {
+    this.playerLoadout = sanitizeLoadout(loadout);
+    const gDef = GRENADES_MAP[this.playerLoadout.grenadeType];
+    if (!this.isMapLoaded) {
+      this.grenadeCount = gDef.startCount;
+      this.maxGrenades = gDef.maxCount;
+    }
+    this.onStateUpdate?.();
+  }
+
+  private initPlayerStartingInventory() {
+    this.playerLoadout = sanitizeLoadout(this.playerLoadout);
+    const starterId = this.playerLoadout.startingPistolId;
+    const starterStats = this.baseWeapons[starterId] || this.baseWeapons.pistol;
+    this.playerWeapons = [
+      {
+        stats: { ...starterStats },
+        currentClip: starterStats.clipSize,
+        currentReserve: starterStats.maxReserve,
+        isReloading: false,
+        reloadProgress: 0,
+      },
+    ];
+    this.currentWeaponIndex = 0;
+
+    const gDef = GRENADES_MAP[this.playerLoadout.grenadeType];
+    this.grenadeCount = gDef.startCount;
+    this.maxGrenades = gDef.maxCount;
+    this.flashScreenAlpha = 0;
+    this.throwCooldown = 0;
+  }
+
+  private clearGrenadesAndZones() {
+    this.thrownGrenades.forEach((g) => this.scene.remove(g.mesh));
+    this.thrownGrenades = [];
+    this.burnZones.forEach((bz) => {
+      this.scene.remove(bz.mesh);
+      bz.mesh.geometry.dispose();
+      (bz.mesh.material as THREE.Material).dispose();
+    });
+    this.burnZones = [];
+    this.flashScreenAlpha = 0;
+    this.throwCooldown = 0;
+  }
+
   public loadMap(customConfig?: CustomMapConfig) {
     if (this.isMapLoaded) return;
 
@@ -1327,17 +1395,8 @@ export class GameEngine {
       this.activeOfficialMapId = OFFICIAL_SECTOR_ZERO_ID;
     }
 
-    // Reset Inventory to M1911
-    this.playerWeapons = [
-      {
-        stats: { ...this.baseWeapons.pistol },
-        currentClip: this.baseWeapons.pistol.clipSize,
-        currentReserve: this.baseWeapons.pistol.maxReserve,
-        isReloading: false,
-        reloadProgress: 0,
-      },
-    ];
-    this.currentWeaponIndex = 0;
+    // Initialize Loadout Inventory (Pistols Only + Chosen Starting Grenade)
+    this.initPlayerStartingInventory();
 
     // Build 3D World & Map Objects
     if (this.activeMapConfig) {
@@ -1715,9 +1774,10 @@ export class GameEngine {
     this.zombies.forEach((z) => this.scene.remove(z.meshGroup));
     this.zombies = [];
 
-    // Remove all bullets & particles
+    // Remove all bullets, grenades, burn zones & particles
     this.bullets.forEach((b) => this.scene.remove(b.mesh));
     this.bullets = [];
+    this.clearGrenadesAndZones();
     this.particles.forEach((p) => this.scene.remove(p.mesh));
     this.particles = [];
 
@@ -2431,6 +2491,9 @@ export class GameEngine {
       if (e.code === 'KeyT' && !e.repeat) {
         this.toggleFlashlight();
       }
+      if (e.code === 'KeyG' && !e.repeat) {
+        this.throwGrenade();
+      }
     });
 
     window.addEventListener('keyup', (e) => {
@@ -2896,6 +2959,11 @@ export class GameEngine {
     this.stats.round = roundNum;
     this.stats.isRoundBreak = true;
     this.stats.roundBreakTimer = 5;
+
+    // Resupply +2 grenades at the start of each new survival wave (up to max)
+    if (roundNum > 1) {
+      this.grenadeCount = Math.min(this.maxGrenades, this.grenadeCount + 2);
+    }
 
     // Respawn explosive barrels at start of new wave
     this.explosiveBarrels.forEach((eb) => {
@@ -3454,6 +3522,7 @@ export class GameEngine {
       w.currentReserve = w.stats.maxReserve;
       w.isReloading = false;
     });
+    this.grenadeCount = this.maxGrenades;
     soundEngine.playReload();
     this.onStateUpdate?.();
   }
@@ -3574,10 +3643,17 @@ export class GameEngine {
       this.updatePlayerMovement(delta);
       this.updateWeapons(delta);
       this.updateBullets(delta);
+      this.updateGrenades(delta);
+      this.updateBurnZones(delta);
       this.updateZombies(delta);
       this.updateParticles(delta);
       this.updateWaveManager(delta);
       this.updateInteractivePrompts();
+
+      if (this.flashScreenAlpha > 0) {
+        this.flashScreenAlpha = Math.max(0, this.flashScreenAlpha - delta * 1.45);
+        this.onStateUpdate?.();
+      }
 
       // Subtle flickering animation for sconce lantern lights
       const time = this.clock.getElapsedTime();
@@ -3882,14 +3958,69 @@ export class GameEngine {
       }
     }
 
-    this.zombies.forEach((z) => {
+    let burnKills = 0;
+    for (let i = this.zombies.length - 1; i >= 0; i--) {
+      const z = this.zombies[i];
       const zPos = z.meshGroup.position;
-      const barrier = z.windowId !== null ? this.barriers[z.windowId] : null;
 
+      // Active status timers
+      if (z.slowTimer && z.slowTimer > 0) {
+        z.slowTimer = Math.max(0, z.slowTimer - delta);
+      }
+      if (z.burnTimer && z.burnTimer > 0) {
+        z.burnTimer = Math.max(0, z.burnTimer - delta);
+        z.health -= 65 * delta;
+        if (Math.random() < delta * 5) {
+          const flameMesh = new THREE.Mesh(
+            new THREE.BoxGeometry(0.08, 0.08, 0.08),
+            new THREE.MeshBasicMaterial({ color: Math.random() > 0.5 ? '#ff5500' : '#ffbb00' })
+          );
+          flameMesh.position.set(zPos.x + (Math.random() - 0.5) * 0.4, 0.9 + Math.random() * 0.6, zPos.z + (Math.random() - 0.5) * 0.4);
+          this.scene.add(flameMesh);
+          this.particles.push({
+            mesh: flameMesh,
+            velocity: new THREE.Vector3((Math.random() - 0.5) * 1.5, 2.2 + Math.random() * 1.5, (Math.random() - 0.5) * 1.5),
+            life: 0.28,
+            maxLife: 0.28,
+            color: '#ff6600',
+          });
+        }
+        if (z.health <= 0) {
+          this.scene.remove(z.meshGroup);
+          this.zombies.splice(i, 1);
+          this.stats.kills++;
+          burnKills++;
+          this.addScore(75, 'THERMITE KILL!');
+          continue;
+        }
+      }
+
+      const barrier = z.windowId !== null ? this.barriers[z.windowId] : null;
       const armL = z.meshGroup.getObjectByName('zombieArmL');
       const armR = z.meshGroup.getObjectByName('zombieArmR');
       const legL = z.meshGroup.getObjectByName('zombieLegL');
       const legR = z.meshGroup.getObjectByName('zombieLegR');
+
+      // Flashbang Stunned State: freeze zombie & play dazed cover-eyes animation
+      if (z.stunTimer && z.stunTimer > 0) {
+        z.stunTimer = Math.max(0, z.stunTimer - delta);
+        const wobble = Math.sin(Date.now() * 0.018 + z.walkCycle) * 0.14;
+        if (legL && legR) {
+          legL.rotation.x = 0;
+          legR.rotation.x = 0;
+        }
+        if (armL && armR) {
+          armL.rotation.x = -Math.PI * 0.78 + wobble;
+          armR.rotation.x = -Math.PI * 0.78 - wobble;
+        }
+        z.meshGroup.rotation.z = wobble * 0.4;
+        continue;
+      } else if (z.meshGroup.rotation.z !== 0) {
+        z.meshGroup.rotation.z = 0;
+      }
+
+      const speedMult = z.slowTimer && z.slowTimer > 0 ? 0.25 : 1.0;
+      const effectiveSpeed = z.speed * speedMult;
 
       if (z.state === 'approaching_window' && barrier) {
         // Move towards window barrier but stop OUTSIDE the frame to prevent plank clipping
@@ -3897,15 +4028,16 @@ export class GameEngine {
         const targetPos = barrier.position.clone().add(outsideOffset);
         targetPos.y = 0;
 
-        const dir = targetPos.clone().sub(zPos).normalize();
-        zPos.addScaledVector(dir, z.speed * delta);
+        const dir = targetPos.clone().sub(zPos);
+        if (dir.lengthSq() > 0.0001) dir.normalize();
+        zPos.addScaledVector(dir, effectiveSpeed * delta);
 
         // Keep zombie facing barrier with front (-Z eyes/face) toward targetPos
         const angle = Math.atan2(targetPos.x - zPos.x, targetPos.z - zPos.z) + Math.PI;
         z.meshGroup.rotation.set(0, angle, 0);
 
         // Walking animation
-        z.walkCycle += delta * z.speed * 5;
+        z.walkCycle += delta * effectiveSpeed * 5;
         if (legL && legR) {
           legL.rotation.x = Math.sin(z.walkCycle) * 0.4;
           legR.rotation.x = -Math.sin(z.walkCycle) * 0.4;
@@ -3934,7 +4066,7 @@ export class GameEngine {
           legR.rotation.x = 0;
         }
 
-        z.breakPlankTimer += delta;
+        z.breakPlankTimer += delta * speedMult;
         if (armL && armR) {
           armL.rotation.x = -Math.PI / 2.5 + Math.sin(z.breakPlankTimer * 10) * 0.35;
           armR.rotation.x = -Math.PI / 2.5 - Math.sin(z.breakPlankTimer * 10) * 0.35;
@@ -3958,13 +4090,14 @@ export class GameEngine {
         // Step into room past window sill once planks are destroyed
         const enterPos = barrier.position.clone().add(barrier.direction.clone().multiplyScalar(2.0));
         enterPos.y = 0;
-        const dir = enterPos.clone().sub(zPos).normalize();
-        zPos.addScaledVector(dir, z.speed * delta);
+        const dir = enterPos.clone().sub(zPos);
+        if (dir.lengthSq() > 0.0001) dir.normalize();
+        zPos.addScaledVector(dir, effectiveSpeed * delta);
 
         const angle = Math.atan2(enterPos.x - zPos.x, enterPos.z - zPos.z) + Math.PI;
         z.meshGroup.rotation.set(0, angle, 0);
 
-        z.walkCycle += delta * z.speed * 5;
+        z.walkCycle += delta * effectiveSpeed * 5;
         if (legL && legR) {
           legL.rotation.x = Math.sin(z.walkCycle) * 0.4;
           legR.rotation.x = -Math.sin(z.walkCycle) * 0.4;
@@ -3976,7 +4109,8 @@ export class GameEngine {
         }
       } else if (z.state === 'chasing_player' || z.state === 'attacking') {
         // Pathfind to player position with separation steering from nearby zombies
-        const targetDir = playerPosVec.clone().sub(zPos).normalize();
+        const targetDir = playerPosVec.clone().sub(zPos);
+        if (targetDir.lengthSq() > 0.0001) targetDir.normalize();
         const distToPlayer = zPos.distanceTo(playerPosVec);
 
         // Calculate separation steering away from neighboring zombies
@@ -4000,7 +4134,7 @@ export class GameEngine {
         if (sepX !== 0 || sepZ !== 0) {
           dir.x = dir.x * 0.7 + sepX * 0.3;
           dir.z = dir.z * 0.7 + sepZ * 0.3;
-          dir.normalize();
+          if (dir.lengthSq() > 0.0001) dir.normalize();
         }
 
         const angle = Math.atan2(playerPosVec.x - zPos.x, playerPosVec.z - zPos.z) + Math.PI;
@@ -4017,11 +4151,11 @@ export class GameEngine {
             armR.rotation.x = -Math.PI / 3;
           }
         } else if (distToPlayer > 1.3) {
-          zPos.addScaledVector(dir, z.speed * delta);
+          zPos.addScaledVector(dir, effectiveSpeed * delta);
           this.resolveMapCollisions(zPos, 0.45, zPos.y, 1.8);
           z.state = 'chasing_player';
 
-          z.walkCycle += delta * z.speed * 5;
+          z.walkCycle += delta * effectiveSpeed * 5;
           if (legL && legR) {
             legL.rotation.x = Math.sin(z.walkCycle) * 0.5;
             legR.rotation.x = -Math.sin(z.walkCycle) * 0.5;
@@ -4032,7 +4166,7 @@ export class GameEngine {
           }
         } else if (!playerInLava) {
           z.state = 'attacking';
-          z.attackTimer += delta;
+          z.attackTimer += delta * speedMult;
 
           // Attack claw animation
           if (armL && armR) {
@@ -4059,7 +4193,448 @@ export class GameEngine {
           }
         }
       }
+    }
+
+    if (burnKills > 0) {
+      soundEngine.playHitmarker(true, false);
+      this.onHitmarker?.(true, false);
+      this.checkRoundCompletion();
+    }
+  }
+
+  public throwGrenade() {
+    if (!this.isMapLoaded || this.stats.isGameOver || this.stats.isPaused) return;
+    if (this.grenadeCount <= 0 || this.throwCooldown > 0) return;
+
+    const gType = this.playerLoadout.grenadeType;
+    const gDef = GRENADES_MAP[gType];
+    this.grenadeCount--;
+    this.throwCooldown = 0.45;
+
+    const dir = new THREE.Vector3();
+    this.camera.getWorldDirection(dir);
+    const startPos = this.playerPos.clone().addScaledVector(dir, 0.55);
+    startPos.y -= 0.14;
+
+    const vel = dir.clone().multiplyScalar(17.5);
+    vel.y += 3.8;
+
+    const mesh = this.createGrenadeMesh(gType);
+    mesh.position.copy(startPos);
+    this.scene.add(mesh);
+
+    this.thrownGrenades.push({
+      type: gType,
+      mesh,
+      vel,
+      fuse: gDef.fuseTime,
     });
+
+    soundEngine.playGrenadeThrow();
+    this.onStateUpdate?.();
+  }
+
+  private createGrenadeMesh(type: GrenadeType): THREE.Group {
+    const g = new THREE.Group();
+    const def = GRENADES_MAP[type];
+
+    const bodyColor =
+      type === 'frag'
+        ? '#3f4d36'
+        : type === 'flashbang'
+        ? '#cbd5e1'
+        : type === 'cryo'
+        ? '#0e7490'
+        : '#7c2d12';
+
+    const bodyMat = new THREE.MeshStandardMaterial({
+      color: bodyColor,
+      roughness: 0.45,
+      metalness: 0.6,
+    });
+    const bandMat = new THREE.MeshStandardMaterial({
+      color: def.color,
+      emissive: new THREE.Color(def.badgeColor),
+      emissiveIntensity: 1.4,
+      roughness: 0.25,
+    });
+    const capMat = new THREE.MeshStandardMaterial({
+      color: '#1e293b',
+      metalness: 0.85,
+      roughness: 0.3,
+    });
+
+    const body =
+      type === 'frag'
+        ? new THREE.Mesh(new THREE.IcosahedronGeometry(0.12, 0), bodyMat)
+        : new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.24, 10), bodyMat);
+    g.add(body);
+
+    const band = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.095, 0.095, 0.04, 10),
+      bandMat
+    );
+    g.add(band);
+
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.08), capMat);
+    cap.position.y = 0.13;
+    g.add(cap);
+
+    return g;
+  }
+
+  private updateGrenades(delta: number) {
+    if (this.throwCooldown > 0) {
+      this.throwCooldown = Math.max(0, this.throwCooldown - delta);
+    }
+
+    for (let i = this.thrownGrenades.length - 1; i >= 0; i--) {
+      const g = this.thrownGrenades[i];
+      g.fuse -= delta;
+      g.vel.y -= 20 * delta;
+
+      g.mesh.rotation.x += delta * 6.5;
+      g.mesh.rotation.z += delta * 4.5;
+
+      const prevPos = g.mesh.position.clone();
+      const nextPos = prevPos.clone().addScaledVector(g.vel, delta);
+
+      let groundY =
+        this.usesSolidBoxes && this.activeOfficialMapId === OFFICIAL_BLIGHTED_WOODS_ID && nextPos.z < -120
+          ? -1.35
+          : 0;
+
+      if (!this.usesSolidBoxes) {
+        if (Math.abs(nextPos.x) >= 11.45) {
+          nextPos.x = Math.sign(nextPos.x) * 11.45;
+          g.vel.x *= -0.45;
+        }
+        if (Math.abs(nextPos.z) >= 11.45) {
+          nextPos.z = Math.sign(nextPos.z) * 11.45;
+          g.vel.z *= -0.45;
+        }
+      } else {
+        for (const box of this.customSolidBoxes) {
+          const inX = nextPos.x >= box.minX - 0.12 && nextPos.x <= box.maxX + 0.12;
+          const inZ = nextPos.z >= box.minZ - 0.12 && nextPos.z <= box.maxZ + 0.12;
+          if (inX && inZ && box.maxY <= prevPos.y + 0.18 && box.maxY > groundY) {
+            groundY = box.maxY;
+          }
+          if (nextPos.y > box.minY + 0.05 && nextPos.y < box.maxY - 0.05 && inX && inZ) {
+            const wasInX = prevPos.x >= box.minX - 0.12 && prevPos.x <= box.maxX + 0.12;
+            const wasInZ = prevPos.z >= box.minZ - 0.12 && prevPos.z <= box.maxZ + 0.12;
+            if (!wasInX) {
+              nextPos.x = prevPos.x;
+              g.vel.x *= -0.45;
+            }
+            if (!wasInZ) {
+              nextPos.z = prevPos.z;
+              g.vel.z *= -0.45;
+            }
+          }
+        }
+
+        if (this.activeOfficialMapId === OFFICIAL_BLIGHTED_WOODS_ID && nextPos.z > -120) {
+          const r = Math.hypot(nextPos.x, nextPos.z);
+          if (r > 25.2) {
+            const scale = 25.2 / r;
+            nextPos.x *= scale;
+            nextPos.z *= scale;
+            g.vel.x *= -0.45;
+            g.vel.z *= -0.45;
+          }
+        }
+      }
+
+      if (nextPos.y <= groundY + 0.14) {
+        nextPos.y = groundY + 0.14;
+        if (Math.abs(g.vel.y) > 1.2) {
+          g.vel.y = -g.vel.y * 0.42;
+        } else {
+          g.vel.y = 0;
+        }
+        g.vel.x *= 0.7;
+        g.vel.z *= 0.7;
+      }
+
+      g.mesh.position.copy(nextPos);
+
+      if (g.fuse <= 0) {
+        const blastCenter = g.mesh.position.clone();
+        this.scene.remove(g.mesh);
+        this.thrownGrenades.splice(i, 1);
+        this.detonateGrenade(g.type, blastCenter);
+      }
+    }
+  }
+
+  private detonateGrenade(type: GrenadeType, center: THREE.Vector3) {
+    const def = GRENADES_MAP[type];
+
+    // Trigger nearby explosive barrels on Frag / Thermite
+    if (type === 'frag' || type === 'thermite') {
+      this.explosiveBarrels.forEach((eb) => {
+        if (!eb.exploded && eb.position.distanceTo(center) <= def.radius * 0.9) {
+          this.detonateExplosiveBarrel(eb);
+        }
+      });
+    }
+
+    if (type === 'frag') {
+      soundEngine.playExplosion();
+      for (let i = 0; i < 32; i++) {
+        const col = i % 3 === 0 ? '#ff3300' : i % 3 === 1 ? '#ffaa00' : '#334155';
+        const pMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(0.16, 0.16, 0.16),
+          new THREE.MeshBasicMaterial({ color: col })
+        );
+        pMesh.position.copy(center);
+        this.scene.add(pMesh);
+        this.particles.push({
+          mesh: pMesh,
+          velocity: new THREE.Vector3(
+            (Math.random() - 0.5) * 11,
+            Math.random() * 8 + 2,
+            (Math.random() - 0.5) * 11
+          ),
+          life: 0.65,
+          maxLife: 0.65,
+          color: col,
+        });
+      }
+
+      let kills = 0;
+      let hits = 0;
+      for (let i = this.zombies.length - 1; i >= 0; i--) {
+        const z = this.zombies[i];
+        const zCenter = z.meshGroup.position.clone().add(new THREE.Vector3(0, 1.0, 0));
+        const dist = zCenter.distanceTo(center);
+        if (dist <= def.radius) {
+          const falloff = Math.max(0.35, 1 - dist / (def.radius * 1.15));
+          z.health -= def.damage * falloff;
+          this.spawnBloodParticles(zCenter);
+          hits++;
+          if (z.health <= 0) {
+            this.scene.remove(z.meshGroup);
+            this.zombies.splice(i, 1);
+            kills++;
+            this.stats.kills++;
+            this.addScore(90, 'FRAG GRENADE KILL!');
+          }
+        }
+      }
+      if (kills > 0 || hits > 0) {
+        soundEngine.playHitmarker(kills > 0, false);
+        this.onHitmarker?.(kills > 0, false);
+        if (kills > 0) this.checkRoundCompletion();
+      }
+    } else if (type === 'flashbang') {
+      soundEngine.playFlashbang();
+      for (let i = 0; i < 28; i++) {
+        const col = i % 2 === 0 ? '#ffffff' : '#bae6fd';
+        const pMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(0.14, 0.14, 0.14),
+          new THREE.MeshBasicMaterial({ color: col })
+        );
+        pMesh.position.copy(center);
+        this.scene.add(pMesh);
+        this.particles.push({
+          mesh: pMesh,
+          velocity: new THREE.Vector3(
+            (Math.random() - 0.5) * 12,
+            Math.random() * 6 + 1,
+            (Math.random() - 0.5) * 12
+          ),
+          life: 0.42,
+          maxLife: 0.42,
+          color: col,
+        });
+      }
+
+      let stunned = 0;
+      let kills = 0;
+      for (let i = this.zombies.length - 1; i >= 0; i--) {
+        const z = this.zombies[i];
+        const zCenter = z.meshGroup.position.clone().add(new THREE.Vector3(0, 1.0, 0));
+        const dist = zCenter.distanceTo(center);
+        if (dist <= def.radius) {
+          z.stunTimer = Math.max(z.stunTimer || 0, 5.0);
+          z.health -= def.damage;
+          stunned++;
+          if (z.health <= 0) {
+            this.scene.remove(z.meshGroup);
+            this.zombies.splice(i, 1);
+            kills++;
+            this.stats.kills++;
+            this.addScore(60, 'FLASHBANG KILL!');
+          }
+        }
+      }
+      if (stunned > 0) {
+        this.addScore(stunned * 15, `STUNNED ${stunned}x!`);
+        soundEngine.playHitmarker(kills > 0, false);
+        this.onHitmarker?.(kills > 0, false);
+      }
+      if (kills > 0) {
+        this.checkRoundCompletion();
+      }
+
+      // Mild tactical glare on HUD if player is near the flash detonation
+      const playerDist = this.playerPos.distanceTo(center);
+      if (playerDist < 14) {
+        const camDir = new THREE.Vector3();
+        this.camera.getWorldDirection(camDir);
+        const toFlash = center.clone().sub(this.playerPos).normalize();
+        const facing = camDir.dot(toFlash);
+        const falloff = Math.max(0.2, 1 - playerDist / 14);
+        const intensity = facing > 0.15 ? 0.85 * falloff : 0.25 * falloff;
+        this.flashScreenAlpha = Math.max(this.flashScreenAlpha, intensity);
+        this.onStateUpdate?.();
+      }
+    } else if (type === 'cryo') {
+      soundEngine.playCryoExplosion();
+      for (let i = 0; i < 30; i++) {
+        const col = i % 2 === 0 ? '#67e8f9' : '#e0f2fe';
+        const pMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(0.14, 0.14, 0.14),
+          new THREE.MeshBasicMaterial({ color: col })
+        );
+        pMesh.position.copy(center);
+        this.scene.add(pMesh);
+        this.particles.push({
+          mesh: pMesh,
+          velocity: new THREE.Vector3(
+            (Math.random() - 0.5) * 9,
+            Math.random() * 5 + 1,
+            (Math.random() - 0.5) * 9
+          ),
+          life: 0.6,
+          maxLife: 0.6,
+          color: col,
+        });
+      }
+
+      let kills = 0;
+      let chilled = 0;
+      for (let i = this.zombies.length - 1; i >= 0; i--) {
+        const z = this.zombies[i];
+        const zCenter = z.meshGroup.position.clone().add(new THREE.Vector3(0, 1.0, 0));
+        const dist = zCenter.distanceTo(center);
+        if (dist <= def.radius) {
+          const falloff = Math.max(0.4, 1 - dist / (def.radius * 1.15));
+          z.slowTimer = Math.max(z.slowTimer || 0, 6.0);
+          z.health -= def.damage * falloff;
+          chilled++;
+          if (z.health <= 0) {
+            this.scene.remove(z.meshGroup);
+            this.zombies.splice(i, 1);
+            kills++;
+            this.stats.kills++;
+            this.addScore(85, 'CRYO SHATTER KILL!');
+          }
+        }
+      }
+      if (chilled > 0) {
+        if (kills === 0) this.addScore(chilled * 15, `CHILLED ${chilled}x!`);
+        soundEngine.playHitmarker(kills > 0, false);
+        this.onHitmarker?.(kills > 0, false);
+        if (kills > 0) this.checkRoundCompletion();
+      }
+    } else if (type === 'thermite') {
+      soundEngine.playExplosion();
+      for (let i = 0; i < 26; i++) {
+        const col = i % 2 === 0 ? '#f97316' : '#facc15';
+        const pMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(0.14, 0.14, 0.14),
+          new THREE.MeshBasicMaterial({ color: col })
+        );
+        pMesh.position.copy(center);
+        this.scene.add(pMesh);
+        this.particles.push({
+          mesh: pMesh,
+          velocity: new THREE.Vector3(
+            (Math.random() - 0.5) * 8,
+            Math.random() * 6 + 2,
+            (Math.random() - 0.5) * 8
+          ),
+          life: 0.55,
+          maxLife: 0.55,
+          color: col,
+        });
+      }
+
+      const discGeo = new THREE.CircleGeometry(def.radius, 24);
+      const discMat = new THREE.MeshBasicMaterial({
+        color: '#f97316',
+        transparent: true,
+        opacity: 0.55,
+        side: THREE.DoubleSide,
+      });
+      const disc = new THREE.Mesh(discGeo, discMat);
+      disc.rotation.x = -Math.PI / 2;
+      disc.position.set(center.x, center.y - 0.08, center.z);
+      this.scene.add(disc);
+      this.burnZones.push({
+        mesh: disc,
+        position: center.clone(),
+        radius: def.radius,
+        life: 5.0,
+        tickTimer: 0,
+      });
+
+      let kills = 0;
+      for (let i = this.zombies.length - 1; i >= 0; i--) {
+        const z = this.zombies[i];
+        const dist = z.meshGroup.position.distanceTo(new THREE.Vector3(center.x, z.meshGroup.position.y, center.z));
+        if (dist <= def.radius) {
+          z.burnTimer = Math.max(z.burnTimer || 0, 3.5);
+          z.health -= def.damage * 0.65;
+          if (z.health <= 0) {
+            this.scene.remove(z.meshGroup);
+            this.zombies.splice(i, 1);
+            kills++;
+            this.stats.kills++;
+            this.addScore(85, 'THERMITE BLAST KILL!');
+          }
+        }
+      }
+      if (kills > 0) {
+        soundEngine.playHitmarker(true, false);
+        this.onHitmarker?.(true, false);
+        this.checkRoundCompletion();
+      }
+    }
+  }
+
+  private updateBurnZones(delta: number) {
+    for (let i = this.burnZones.length - 1; i >= 0; i--) {
+      const bz = this.burnZones[i];
+      bz.life -= delta;
+      bz.tickTimer += delta;
+
+      const mat = bz.mesh.material as THREE.MeshBasicMaterial;
+      mat.opacity = Math.min(0.55, Math.max(0.1, (bz.life / 5.0) * 0.6));
+
+      if (bz.tickTimer >= 0.35) {
+        bz.tickTimer = 0;
+        this.zombies.forEach((z) => {
+          const dist = Math.hypot(
+            z.meshGroup.position.x - bz.position.x,
+            z.meshGroup.position.z - bz.position.z
+          );
+          if (dist <= bz.radius) {
+            z.burnTimer = Math.max(z.burnTimer || 0, 2.0);
+          }
+        });
+      }
+
+      if (bz.life <= 0) {
+        this.scene.remove(bz.mesh);
+        bz.mesh.geometry.dispose();
+        mat.dispose();
+        this.burnZones.splice(i, 1);
+      }
+    }
   }
 
   private updateParticles(delta: number) {
@@ -4147,17 +4722,11 @@ export class GameEngine {
     this.camera.position.copy(this.playerPos);
     this.perks = { juggernog: false, speedCola: false, doubleTap: false };
 
-    // Reset Inventory to Pistol
-    this.playerWeapons = [
-      {
-        stats: { ...this.baseWeapons.pistol },
-        currentClip: this.baseWeapons.pistol.clipSize,
-        currentReserve: this.baseWeapons.pistol.maxReserve,
-        isReloading: false,
-        reloadProgress: 0,
-      },
-    ];
-    this.currentWeaponIndex = 0;
+    // Reset thrown grenades & burn zones
+    this.clearGrenadesAndZones();
+
+    // Reset Inventory to Loadout Starting Pistol & Grenades
+    this.initPlayerStartingInventory();
     this.updateGunMesh();
 
     // Reset Barriers

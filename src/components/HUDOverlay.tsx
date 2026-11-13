@@ -4,10 +4,26 @@ import { SettingsModal } from './SettingsModal';
 import { HowToPlayModal } from './HowToPlayModal';
 import { MapMakerView } from './MapMakerView';
 import { MapSelectModal } from './MapSelectModal';
-import { CustomMapConfig, getDefaultMapConfig } from '../types/game';
+import { WeaponsLoadoutModal } from './WeaponsLoadoutModal';
+import { CustomMapConfig, PlayerLoadout, getDefaultMapConfig } from '../types/game';
 import { OFFICIAL_SECTOR_ZERO_ID, OFFICIAL_BLIGHTED_WOODS_ID, isOfficialMapId } from '../data/officialMaps';
-import { Volume2, VolumeX, Play, RotateCcw, Shield, Zap, Target, Sliders, HelpCircle, Flame, Home, Crosshair, Box, Flashlight } from 'lucide-react';
+import { DEFAULT_LOADOUT, GRENADES_MAP, WEAPONS_MAP, sanitizeLoadout } from '../data/weapons';
+import { Volume2, VolumeX, Play, RotateCcw, Shield, Zap, Target, Sliders, HelpCircle, Flame, Home, Crosshair, Box, Flashlight, Bomb } from 'lucide-react';
 import { soundEngine } from '../utils/soundEngine';
+
+const LOADOUT_STORAGE_KEY = 'polyops_player_loadout';
+
+function loadSavedLoadout(): PlayerLoadout {
+  try {
+    const raw = localStorage.getItem(LOADOUT_STORAGE_KEY);
+    if (raw) {
+      return sanitizeLoadout(JSON.parse(raw));
+    }
+  } catch (e) {
+    console.warn('Failed to load saved loadout:', e);
+  }
+  return { ...DEFAULT_LOADOUT };
+}
 
 interface HUDOverlayProps {
   engine: GameEngine | null;
@@ -18,15 +34,20 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
   const [isHitmarkerActive, setIsHitmarkerActive] = useState(false);
   const [hitmarkerType, setHitmarkerType] = useState<'normal' | 'kill' | 'headshot'>('normal');
   const [isMuted, setIsMuted] = useState(false);
-  const [activeModal, setActiveModal] = useState<'none' | 'main_menu' | 'settings' | 'how_to_play' | 'map_maker' | 'map_select'>('main_menu');
+  const [activeModal, setActiveModal] = useState<'none' | 'main_menu' | 'settings' | 'how_to_play' | 'map_maker' | 'map_select' | 'loadout'>('main_menu');
   const [selectedMapConfig, setSelectedMapConfig] = useState<CustomMapConfig>(() => getDefaultMapConfig());
+  const [playerLoadout, setPlayerLoadout] = useState<PlayerLoadout>(() => loadSavedLoadout());
   const [isTestingCustomMap, setIsTestingCustomMap] = useState<boolean>(false);
 
   useEffect(() => {
     if (!engine) return;
 
+    engine.setLoadout(playerLoadout);
+
     const updateUI = () => {
       const curWep = engine.playerWeapons[engine.currentWeaponIndex];
+      const gType = engine.playerLoadout.grenadeType;
+      const gDef = GRENADES_MAP[gType];
       setGameState({
         score: engine.stats.score,
         round: engine.stats.round,
@@ -40,11 +61,19 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
         isPointerLocked: engine.isPointerLocked,
         isAiming: engine.isAiming,
         isFlashlightOn: engine.isFlashlightOn,
+        flashAlpha: engine.flashScreenAlpha,
         playerHp: Math.round(engine.playerHp),
         maxHp: engine.maxHp,
         prompt: engine.currentPrompt,
         perks: { ...engine.perks },
         scoreNotifications: [...engine.scoreNotifications],
+        grenade: {
+          type: gType,
+          name: gDef?.shortName || 'GRENADE',
+          count: engine.grenadeCount,
+          max: engine.maxGrenades,
+          badgeColor: gDef?.badgeColor || '#f97316',
+        },
         weapon: curWep
           ? {
               name: curWep.stats.name,
@@ -89,11 +118,23 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
     soundEngine.setMuted(next);
   };
 
+  const handleSaveLoadout = (next: PlayerLoadout) => {
+    const clean = sanitizeLoadout(next);
+    setPlayerLoadout(clean);
+    try {
+      localStorage.setItem(LOADOUT_STORAGE_KEY, JSON.stringify(clean));
+    } catch (e) {
+      console.warn('Failed to persist loadout:', e);
+    }
+    engine?.setLoadout(clean);
+  };
+
   const handleStartGame = (mapConfigOverride?: CustomMapConfig | React.MouseEvent) => {
     setActiveModal('none');
     const targetMap = (mapConfigOverride && 'id' in mapConfigOverride) ? mapConfigOverride : selectedMapConfig;
     const isCustom = !isOfficialMapId(targetMap.id);
     setIsTestingCustomMap(isCustom);
+    engine?.setLoadout(playerLoadout);
     engine?.unloadMap();
     if (targetMap.id === OFFICIAL_SECTOR_ZERO_ID) {
       engine?.loadMap();
@@ -159,6 +200,25 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
           }}
           onOpenMapMaker={() => setActiveModal('map_maker')}
           onClose={() => setActiveModal('main_menu')}
+        />
+      )}
+
+      {/* Weapons & Loadout Modal Component */}
+      {activeModal === 'loadout' && (
+        <WeaponsLoadoutModal
+          currentLoadout={playerLoadout}
+          onSaveLoadout={handleSaveLoadout}
+          onClose={() => setActiveModal('main_menu')}
+        />
+      )}
+
+      {/* Flashbang Concussive Whiteout Glare Overlay */}
+      {activeModal === 'none' && gameState.flashAlpha > 0.01 && (
+        <div
+          className="absolute inset-0 pointer-events-none z-10"
+          style={{
+            backgroundColor: `rgba(255, 255, 255, ${gameState.flashAlpha})`,
+          }}
         />
       )}
 
@@ -306,40 +366,57 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
             )}
           </div>
 
-          {/* Bottom Right - Weapon & Ammo */}
+          {/* Bottom Right - Grenade + Weapon & Ammo */}
           {gameState.weapon && (
-            <div className="absolute bottom-8 right-8 z-20 text-right bg-slate-950/80 backdrop-blur-md border border-slate-800 p-4 rounded-xl min-w-[220px] shadow-lg">
-              <div className="flex items-center justify-end gap-2">
-                <div
-                  className={`text-xl font-bold tracking-wider uppercase ${
-                    gameState.weapon.isPap ? 'text-cyan-400 drop-shadow-[0_0_10px_rgba(6,182,212,0.7)]' : 'text-white'
-                  }`}
-                >
-                  {gameState.weapon.name}
-                </div>
-                {gameState.weapon.isPap && (
-                  <span className="text-[10px] bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 px-1.5 py-0.5 rounded font-bold uppercase">
-                    Hyper-Forged
-                  </span>
-                )}
-              </div>
-
-              <div className="text-4xl font-extrabold tracking-wider text-amber-400 mt-1">
-                {gameState.weapon.clip} <span className="text-xl text-slate-400 font-normal">/ {gameState.weapon.reserve}</span>
-              </div>
-
-              {/* Reload Progress Bar */}
-              {gameState.weapon.isReloading && (
-                <div className="mt-2">
-                  <div className="text-xs font-semibold text-amber-400 mb-1 tracking-wider uppercase">RELOADING...</div>
-                  <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden border border-amber-500/30">
-                    <div
-                      className="h-full bg-amber-400 transition-all duration-75"
-                      style={{ width: `${gameState.weapon.reloadProgress * 100}%` }}
-                    />
+            <div className="absolute bottom-8 right-8 z-20 flex flex-col items-end gap-2">
+              {gameState.grenade && (
+                <div className="bg-slate-950/80 backdrop-blur-md border border-slate-800 px-3.5 py-2 rounded-xl flex items-center gap-3 shadow-lg">
+                  <Bomb className="w-4 h-4 text-orange-400 shrink-0" />
+                  <div className="text-right">
+                    <div className="text-[10px] font-bold tracking-widest text-slate-400 uppercase leading-none">
+                      {gameState.grenade.name} <span className="text-cyan-300 font-mono">[G]</span>
+                    </div>
+                    <div className="text-lg font-extrabold text-white leading-tight">
+                      {gameState.grenade.count}{' '}
+                      <span className="text-xs text-slate-400 font-semibold">/ {gameState.grenade.max}</span>
+                    </div>
                   </div>
                 </div>
               )}
+
+              <div className="text-right bg-slate-950/80 backdrop-blur-md border border-slate-800 p-4 rounded-xl min-w-[220px] shadow-lg">
+                <div className="flex items-center justify-end gap-2">
+                  <div
+                    className={`text-xl font-bold tracking-wider uppercase ${
+                      gameState.weapon.isPap ? 'text-cyan-400 drop-shadow-[0_0_10px_rgba(6,182,212,0.7)]' : 'text-white'
+                    }`}
+                  >
+                    {gameState.weapon.name}
+                  </div>
+                  {gameState.weapon.isPap && (
+                    <span className="text-[10px] bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 px-1.5 py-0.5 rounded font-bold uppercase">
+                      Hyper-Forged
+                    </span>
+                  )}
+                </div>
+
+                <div className="text-4xl font-extrabold tracking-wider text-amber-400 mt-1">
+                  {gameState.weapon.clip} <span className="text-xl text-slate-400 font-normal">/ {gameState.weapon.reserve}</span>
+                </div>
+
+                {/* Reload Progress Bar */}
+                {gameState.weapon.isReloading && (
+                  <div className="mt-2">
+                    <div className="text-xs font-semibold text-amber-400 mb-1 tracking-wider uppercase">RELOADING...</div>
+                    <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden border border-amber-500/30">
+                      <div
+                        className="h-full bg-amber-400 transition-all duration-75"
+                        style={{ width: `${gameState.weapon.reloadProgress * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -400,14 +477,14 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
               </button>
 
               <button
-                disabled
-                className="w-full flex items-center justify-between bg-slate-950/60 text-slate-500 font-semibold py-3.5 px-4 rounded-xl border border-slate-900 opacity-60 cursor-not-allowed text-sm"
+                onClick={() => setActiveModal('loadout')}
+                className="w-full flex items-center justify-between bg-slate-900 hover:bg-slate-800 text-slate-200 font-bold py-3.5 px-4 rounded-xl border border-slate-800 hover:border-slate-700 transition-all cursor-pointer text-base"
               >
                 <span className="flex items-center gap-2">
-                  <Flame className="w-4 h-4 text-slate-600" /> WEAPONS & LOADOUT
+                  <Flame className="w-5 h-5 text-red-400" /> WEAPONS &amp; LOADOUT
                 </span>
-                <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-bold uppercase">
-                  SOON
+                <span className="text-[11px] bg-amber-950 text-amber-300 border border-amber-700/60 px-2.5 py-0.5 rounded-md font-extrabold uppercase truncate max-w-[130px]">
+                  {WEAPONS_MAP[playerLoadout.startingPistolId]?.name || 'M1911'}
                 </span>
               </button>
 
@@ -448,6 +525,22 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
                 </p>
 
                 <div className="grid grid-cols-2 gap-3 pt-2">
+                  <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-xl">
+                    <div className="text-[11px] font-bold text-slate-400 uppercase">STARTING SIDEARM</div>
+                    <div className="text-xl font-black text-red-400 uppercase truncate">
+                      {WEAPONS_MAP[playerLoadout.startingPistolId]?.name || 'M1911'}
+                    </div>
+                    <div className="text-[10px] text-slate-500 font-bold uppercase">Pistols Only Policy</div>
+                  </div>
+                  <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-xl">
+                    <div className="text-[11px] font-bold text-slate-400 uppercase">EQUIPPED GRENADE</div>
+                    <div className="text-xl font-black text-cyan-400 uppercase truncate">
+                      {GRENADES_MAP[playerLoadout.grenadeType]?.shortName || 'FRAG GRENADE'}
+                    </div>
+                    <div className="text-[10px] text-slate-500 font-bold uppercase">
+                      {GRENADES_MAP[playerLoadout.grenadeType]?.startCount || 3} Charges • Press [G]
+                    </div>
+                  </div>
                   <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-xl">
                     <div className="text-[11px] font-bold text-slate-400 uppercase">MAX SURVIVAL RECORD</div>
                     <div className="text-2xl font-black text-red-500">ROUND {gameState.round}</div>

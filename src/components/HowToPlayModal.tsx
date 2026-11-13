@@ -69,6 +69,9 @@ export const HowToPlayModal: React.FC<HowToPlayModalProps> = ({ onClose }) => {
               <div>
                 <span className="text-red-400 font-bold">T</span> - Toggle Tactical Flashlight
               </div>
+              <div>
+                <span className="text-red-400 font-bold">G</span> - Throw Loadout Grenade (Frag / Flashbang / Cryo / Thermite)
+              </div>
             </div>
           </div>
 

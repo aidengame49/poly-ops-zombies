@@ -1,4 +1,4 @@
-import { MapObjectType, WeaponStats } from '../types/game';
+import type { GrenadeDefinition, GrenadeType, MapObjectType, PlayerLoadout, WeaponStats } from '../types/game';
 
 export const WEAPON_LIST: WeaponStats[] = [
   // -------------------- PISTOLS --------------------
@@ -625,3 +625,85 @@ export const WALL_BUY_CONFIG: Record<string, { name: string; price: number; wepT
     },
     {} as Record<string, { name: string; price: number; wepType: string; color: string }>
   );
+
+// Only pistols are permitted as starting spawn sidearms
+export const PISTOL_WEAPONS: WeaponStats[] = WEAPON_LIST.filter((w) => w.category === 'pistol');
+export const PISTOL_IDS: Set<string> = new Set(PISTOL_WEAPONS.map((w) => w.id));
+
+export const GRENADE_LIST: GrenadeDefinition[] = [
+  {
+    id: 'frag',
+    name: 'MK2 Frag Grenade',
+    shortName: 'FRAG GRENADE',
+    description: 'High-explosive fragmentation charge that bounces and clears tightly packed hordes.',
+    startCount: 3,
+    maxCount: 4,
+    fuseTime: 1.5,
+    radius: 6.8,
+    damage: 380,
+    color: '#ef4444',
+    badgeColor: '#f97316',
+  },
+  {
+    id: 'flashbang',
+    name: 'M84 Flashbang',
+    shortName: 'FLASHBANG',
+    description: 'Blinding concussive stun burst that disorients and freezes nearby zombies for 5 seconds.',
+    startCount: 3,
+    maxCount: 4,
+    fuseTime: 1.0,
+    radius: 9.5,
+    damage: 30,
+    color: '#e2e8f0',
+    badgeColor: '#38bdf8',
+  },
+  {
+    id: 'cryo',
+    name: 'Cryo Freeze Grenade',
+    shortName: 'CRYO GRENADE',
+    description: 'Releases an endothermic frost cloud that damages and slows zombies by 75% for 6 seconds.',
+    startCount: 3,
+    maxCount: 4,
+    fuseTime: 1.1,
+    radius: 7.5,
+    damage: 145,
+    color: '#67e8f9',
+    badgeColor: '#06b6d4',
+  },
+  {
+    id: 'thermite',
+    name: 'Thermite Charge',
+    shortName: 'THERMITE',
+    description: 'Ignites a scorching molten burn zone for 5 seconds that melts any zombie walking through it.',
+    startCount: 2,
+    maxCount: 3,
+    fuseTime: 1.1,
+    radius: 4.8,
+    damage: 160,
+    color: '#fb923c',
+    badgeColor: '#ea580c',
+  },
+];
+
+export const GRENADES_MAP: Record<GrenadeType, GrenadeDefinition> = GRENADE_LIST.reduce(
+  (acc, g) => {
+    acc[g.id] = g;
+    return acc;
+  },
+  {} as Record<GrenadeType, GrenadeDefinition>
+);
+
+export const DEFAULT_LOADOUT: PlayerLoadout = {
+  startingPistolId: 'pistol',
+  grenadeType: 'frag',
+};
+
+export function sanitizeLoadout(raw?: Partial<PlayerLoadout> | null): PlayerLoadout {
+  const pistolId = raw?.startingPistolId && PISTOL_IDS.has(raw.startingPistolId) ? raw.startingPistolId : 'pistol';
+  const grenadeId = raw?.grenadeType && raw.grenadeType in GRENADES_MAP ? raw.grenadeType : 'frag';
+  return {
+    startingPistolId: pistolId,
+    grenadeType: grenadeId,
+  };
+}
+

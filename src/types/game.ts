@@ -48,6 +48,27 @@ export interface WindowBarrier {
   isTargetedByZombie: boolean;
 }
 
+export type GrenadeType = 'frag' | 'flashbang' | 'cryo' | 'thermite';
+
+export interface GrenadeDefinition {
+  id: GrenadeType;
+  name: string;
+  shortName: string;
+  description: string;
+  startCount: number;
+  maxCount: number;
+  fuseTime: number;
+  radius: number;
+  damage: number;
+  color: string;
+  badgeColor: string;
+}
+
+export interface PlayerLoadout {
+  startingPistolId: string;
+  grenadeType: GrenadeType;
+}
+
 export interface Zombie {
   id: string;
   meshGroup: any; // THREE.Group
@@ -62,6 +83,9 @@ export interface Zombie {
   breakPlankTimer: number;
   walkCycle: number;
   isHeadshot?: boolean;
+  stunTimer?: number;
+  slowTimer?: number;
+  burnTimer?: number;
 }
 
 export interface Particle {
