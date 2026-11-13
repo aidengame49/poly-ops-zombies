@@ -7,70 +7,74 @@ interface HowToPlayModalProps {
 
 export const HowToPlayModal: React.FC<HowToPlayModalProps> = ({ onClose }) => {
   return (
-    <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[100] flex items-center justify-center p-4 pointer-events-auto select-none font-['Rajdhani',sans-serif]">
-      <div className="max-w-2xl w-full bg-slate-900/95 border border-red-900/70 rounded-2xl p-6 sm:p-8 shadow-[0_0_60px_rgba(220,38,38,0.3)] relative flex flex-col max-h-[90vh]">
+    <div
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[100] flex items-center justify-center p-2 sm:p-4 pointer-events-auto select-none font-['Rajdhani',sans-serif]"
+    >
+      <div className="max-w-2xl w-full bg-slate-900/95 border border-red-900/70 rounded-2xl p-4 sm:p-7 shadow-[0_0_60px_rgba(220,38,38,0.3)] relative flex flex-col max-h-[94dvh]">
         {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+        <div className="flex items-center justify-between pb-3 sm:pb-4 border-b border-slate-800 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-red-600/20 border border-red-500/40 flex items-center justify-center text-red-500">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-red-600/20 border border-red-500/40 flex items-center justify-center text-red-500">
               <HelpCircle className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-2xl font-extrabold text-white tracking-wider">FIELD MANUAL & CONTROLS</h2>
-              <p className="text-xs text-slate-400">Master movement, weapons, perks & barrier defense</p>
+              <h2 className="text-xl sm:text-2xl font-extrabold text-white tracking-wider">FIELD MANUAL &amp; CONTROLS</h2>
+              <p className="text-xs text-slate-400">Master computer, phone &amp; tablet controls, weapons &amp; perks</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="w-9 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+            className="min-h-[40px] min-w-[40px] rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="overflow-y-auto my-4 pr-2 space-y-6 flex-1 text-slate-300">
+        <div className="overflow-y-auto my-3 sm:my-4 pr-1 sm:pr-2 space-y-6 flex-1 text-slate-300">
           {/* Controls Grid */}
           <div className="space-y-3">
             <div className="text-xs font-bold tracking-widest text-red-400 uppercase flex items-center gap-2">
-              <Crosshair className="w-4 h-4" /> MOVEMENT & COMBAT CONTROLS
+              <Crosshair className="w-4 h-4" /> COMPUTER &amp; TOUCH CONTROLS
             </div>
-            <div className="grid grid-cols-2 gap-3 bg-slate-950 border border-slate-800 p-4 rounded-xl text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-slate-950 border border-slate-800 p-3.5 sm:p-4 rounded-xl text-sm">
               <div>
-                <span className="text-red-400 font-bold">W A S D</span> - Move Character
+                <span className="text-red-400 font-bold">W A S D / LEFT STICK</span> - Move &amp; Sprint
               </div>
               <div>
-                <span className="text-red-400 font-bold">MOUSE</span> - Look / Aim Direction
+                <span className="text-red-400 font-bold">MOUSE / RIGHT SWIPE</span> - Look &amp; Aim
               </div>
               <div>
-                <span className="text-red-400 font-bold">LEFT CLICK</span> - Fire Active Weapon
+                <span className="text-red-400 font-bold">LEFT CLICK / FIRE</span> - Fire Active Weapon
               </div>
               <div>
-                <span className="text-red-400 font-bold">RIGHT CLICK</span> - Aim Down Sights (ADS)
+                <span className="text-red-400 font-bold">RIGHT CLICK / AIM</span> - Aim Down Sights (ADS)
               </div>
               <div>
-                <span className="text-red-400 font-bold">SHIFT</span> - Tactical Sprint
+                <span className="text-red-400 font-bold">SHIFT / FULL STICK</span> - Tactical Sprint
               </div>
               <div>
-                <span className="text-red-400 font-bold">SPACEBAR</span> - Jump
+                <span className="text-red-400 font-bold">SPACE / JUMP</span> - Jump
               </div>
               <div>
-                <span className="text-red-400 font-bold">R</span> - Reload Clip
+                <span className="text-red-400 font-bold">R / RELOAD</span> - Reload Clip
               </div>
               <div>
-                <span className="text-red-400 font-bold">1 / 2 / SCROLL</span> - Switch Weapons
+                <span className="text-red-400 font-bold">1, 2, SCROLL / SWAP</span> - Switch Weapons
               </div>
               <div>
-                <span className="text-red-400 font-bold">HOLD 'E'</span> - Repair Window Planks
+                <span className="text-red-400 font-bold">HOLD E / USE</span> - Repair Planks &amp; Revive Allies
               </div>
               <div>
-                <span className="text-red-400 font-bold">PRESS 'E'</span> - Buy Weapons / Boosts / Armory Chest
+                <span className="text-red-400 font-bold">PRESS E / USE</span> - Buy Weapons / Brews / Chest
               </div>
               <div>
-                <span className="text-red-400 font-bold">T</span> - Toggle Tactical Flashlight
+                <span className="text-red-400 font-bold">T / LIGHT</span> - Toggle Tactical Flashlight
               </div>
               <div>
-                <span className="text-red-400 font-bold">G</span> - Throw Loadout Grenade (Frag / Flashbang / Cryo / Thermite)
+                <span className="text-red-400 font-bold">G / GRENADE</span> - Throw Loadout Grenade
               </div>
             </div>
           </div>

@@ -366,6 +366,13 @@ class MultiplayerClient {
         this.currentRoom = msg.room;
         this.syncCrazyGamesRoom(msg.room);
         this.gameHooks.onMatchStarted?.(msg);
+        this.matchStartedListeners.forEach((fn) => {
+          try {
+            fn(msg);
+          } catch (e) {
+            console.warn('matchStarted listener error:', e);
+          }
+        });
         this.emitStateChange();
         break;
 

@@ -81,6 +81,7 @@ export const STORAGE_KEYS = {
   MP_TOKEN: 'polyops_mp_token',
   MP_NAME: 'polyops_mp_name',
   MP_SERVER: 'polyops_mp_server',
+  DEVICE_MODE: 'polyops_device_mode',
 } as const;
 
 const CRAZYGAMES_HOST_REGEX = /(^|\.)(crazygames\.[a-z.]+|1001juegos\.com|gioco\.it|spele\.nl)$/i;
@@ -239,6 +240,20 @@ class CrazyGamesBridge {
     } catch {
       return null;
     }
+  }
+
+  public getSdkDeviceType(): 'desktop' | 'tablet' | 'mobile' | null {
+    if (!this.active || typeof window === 'undefined') return null;
+    try {
+      const sdk = window.CrazyGames?.SDK as
+        | { user?: { systemInfo?: { device?: { type?: string } } } }
+        | undefined;
+      const t = sdk?.user?.systemInfo?.device?.type;
+      if (t === 'desktop' || t === 'tablet' || t === 'mobile') return t;
+    } catch {
+      // Ignore
+    }
+    return null;
   }
 
   public subscribeJoinRoom(listener: (roomId: string) => void): () => void {

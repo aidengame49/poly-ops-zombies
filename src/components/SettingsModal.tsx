@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { GameEngine } from '../game/GameEngine';
-import { Sliders, Sun, Eye, Volume2, MousePointer, RotateCcw, X } from 'lucide-react';
+import { Sliders, Sun, Eye, Volume2, MousePointer, RotateCcw, X, Monitor, Smartphone, Tablet } from 'lucide-react';
 import { crazyGames } from '../utils/crazyGames';
+import { deviceManager, type DeviceModePreference, type DeviceState } from '../utils/deviceMode';
 
 interface SettingsModalProps {
   engine: GameEngine | null;
@@ -10,11 +11,17 @@ interface SettingsModalProps {
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ engine, onClose }) => {
   const [platformMuted, setPlatformMuted] = useState<boolean>(crazyGames.isMuteAudioEnforced);
+  const [deviceState, setDeviceState] = useState<DeviceState>(() => deviceManager.getState());
 
   useEffect(() => {
-    return crazyGames.subscribe(() => {
+    const unsubCg = crazyGames.subscribe(() => {
       setPlatformMuted(crazyGames.isMuteAudioEnforced);
     });
+    const unsubDev = deviceManager.subscribe((s) => setDeviceState(s));
+    return () => {
+      unsubCg();
+      unsubDev();
+    };
   }, []);
 
   if (!engine) return null;
@@ -57,42 +64,92 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ engine, onClose })
     engine.setFlashlightIntensity(4.5);
     engine.setInvertY(false);
     engine.setMasterVolume(80);
+    deviceManager.setPreference('auto');
   };
 
+  const DEVICE_OPTIONS: { id: DeviceModePreference; label: string; icon: React.ReactNode }[] = [
+    { id: 'auto', label: `AUTO (${deviceState.detectedMode.toUpperCase()})`, icon: <Sliders className="w-3.5 h-3.5" /> },
+    { id: 'computer', label: 'COMPUTER', icon: <Monitor className="w-3.5 h-3.5" /> },
+    { id: 'phone', label: 'PHONE', icon: <Smartphone className="w-3.5 h-3.5" /> },
+    { id: 'tablet', label: 'TABLET', icon: <Tablet className="w-3.5 h-3.5" /> },
+  ];
+
   return (
-    <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[100] flex items-center justify-center p-4 pointer-events-auto select-none font-['Rajdhani',sans-serif]">
-      <div className="max-w-2xl w-full bg-slate-900/95 border border-red-900/70 rounded-2xl p-6 sm:p-8 shadow-[0_0_60px_rgba(220,38,38,0.3)] relative flex flex-col max-h-[90vh]">
+    <div
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[100] flex items-center justify-center p-2 sm:p-4 pointer-events-auto select-none font-['Rajdhani',sans-serif]"
+    >
+      <div className="max-w-2xl w-full bg-slate-900/95 border border-red-900/70 rounded-2xl p-4 sm:p-7 shadow-[0_0_60px_rgba(220,38,38,0.3)] relative flex flex-col max-h-[94dvh]">
         {/* Close Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+        <div className="flex items-center justify-between pb-3 sm:pb-4 border-b border-slate-800 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-red-600/20 border border-red-500/40 flex items-center justify-center text-red-500">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-red-600/20 border border-red-500/40 flex items-center justify-center text-red-500">
               <Sliders className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-2xl font-extrabold text-white tracking-wider">GAME SETTINGS</h2>
-              <p className="text-xs text-slate-400">Configure mouse, visual brightness, gamma & audio</p>
+              <h2 className="text-xl sm:text-2xl font-extrabold text-white tracking-wider">GAME SETTINGS</h2>
+              <p className="text-xs text-slate-400">Configure device mode, sensitivity, brightness &amp; audio</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="w-9 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+            className="min-h-[40px] min-w-[40px] rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Scrollable Settings Body */}
-        <div className="overflow-y-auto my-4 pr-2 space-y-6 flex-1">
+        <div className="overflow-y-auto my-3 sm:my-4 pr-1 sm:pr-2 space-y-5 flex-1">
+          {/* Section 0: Device & Control Mode */}
+          <div className="space-y-3">
+            <div className="text-xs font-bold tracking-widest text-cyan-400 uppercase flex items-center gap-2">
+              <Monitor className="w-4 h-4" /> DEVICE MODE &amp; SCREEN FIT
+            </div>
+            <div className="bg-slate-950/80 border border-slate-800 p-3.5 sm:p-4 rounded-xl space-y-2.5">
+              <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
+                <span>Active Mode: <strong className="text-cyan-300 uppercase">{deviceState.effectiveMode}</strong></span>
+                <span className="text-slate-400 font-mono">
+                  {deviceState.viewportWidth}×{deviceState.viewportHeight}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {DEVICE_OPTIONS.map((opt) => {
+                  const active = deviceState.preference === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => deviceManager.setPreference(opt.id)}
+                      className={`min-h-[40px] px-2.5 py-2 rounded-lg text-xs font-extrabold border flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                        active
+                          ? 'bg-cyan-500/20 border-cyan-400 text-cyan-200 shadow-[0_0_12px_rgba(34,211,238,0.25)]'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                      }`}
+                    >
+                      {opt.icon}
+                      <span className="truncate">{opt.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="text-[11px] text-slate-400 leading-snug">
+                <strong>Phone</strong> uses landscape-locked touch joysticks. <strong>Tablet</strong> uses touch controls in any orientation. <strong>Computer</strong> uses mouse &amp; keyboard.
+              </div>
+            </div>
+          </div>
+
           {/* Section 1: Controls & Input */}
           <div className="space-y-4">
             <div className="text-xs font-bold tracking-widest text-red-400 uppercase flex items-center gap-2">
-              <MousePointer className="w-4 h-4" /> CONTROLS & SENSITIVITY
+              <MousePointer className="w-4 h-4" /> CONTROLS &amp; SENSITIVITY
             </div>
 
-            {/* Mouse Sensitivity */}
+            {/* Mouse / Touch Look Sensitivity */}
             <div className="bg-slate-950/80 border border-slate-800 p-4 rounded-xl space-y-2">
               <div className="flex items-center justify-between text-sm font-semibold text-slate-200">
-                <span>Mouse Look Sensitivity</span>
+                <span>Look Sensitivity (Mouse / Touch)</span>
                 <span className="text-red-400 font-bold font-mono">
                   {(settings.mouseSensitivity * 1000).toFixed(1)}
                 </span>
@@ -117,7 +174,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ engine, onClose })
             <div className="bg-slate-950/80 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
               <div>
                 <div className="text-sm font-semibold text-slate-200">Invert Vertical Y-Axis</div>
-                <div className="text-xs text-slate-500">Invert vertical mouse look directions</div>
+                <div className="text-xs text-slate-500">Invert vertical look directions</div>
               </div>
               <button
                 onClick={handleInvertYToggle}

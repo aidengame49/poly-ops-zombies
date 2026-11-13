@@ -21,6 +21,7 @@ import {
 import { soundEngine } from '../utils/soundEngine';
 import { crazyGames, gameStorage, STORAGE_KEYS } from '../utils/crazyGames';
 import { multiplayerClient } from '../utils/multiplayerClient';
+import { deviceManager, type DeviceMode } from '../utils/deviceMode';
 import type { CoopMemberState, MultiplayerRoomState, NetZombieState } from '../types/multiplayer';
 import {
   createRemotePlayerRig,
@@ -1069,10 +1070,121 @@ export class GameEngine {
   private renderer: THREE.WebGLRenderer;
   private clock: THREE.Clock;
 
-  public requestLock() {
-    if (this.container && this.isMapLoaded && !this.stats.isGameOver) {
-      this.container.requestPointerLock();
+  public deviceMode: DeviceMode = deviceManager.getState().effectiveMode;
+  public isTouchMode: boolean = deviceManager.getState().effectiveMode !== 'computer';
+  private touchMoveVec = { x: 0, y: 0 };
+  private touchSprint: boolean = false;
+  private resizeObserver: ResizeObserver | null = null;
+
+  public setDeviceMode(mode: DeviceMode) {
+    this.deviceMode = mode;
+    this.isTouchMode = mode === 'phone' || mode === 'tablet';
+    if (this.isTouchMode && document.pointerLockElement === this.container) {
+      document.exitPointerLock();
     }
+    this.touchMoveVec.x = 0;
+    this.touchMoveVec.y = 0;
+    this.touchSprint = false;
+    this.onWindowResize();
+    this.onStateUpdate?.();
+  }
+
+  public setTouchMove(x: number, y: number, sprint: boolean) {
+    this.touchMoveVec.x = Math.max(-1, Math.min(1, x));
+    this.touchMoveVec.y = Math.max(-1, Math.min(1, y));
+    this.touchSprint = sprint;
+  }
+
+  public addTouchLookDelta(dx: number, dy: number) {
+    if (!this.isMapLoaded || this.stats.isPaused || this.stats.isGameOver) return;
+    const sens = this.settings.mouseSensitivity * 1.65;
+    this.yaw -= dx * sens;
+    const pitchDelta = dy * sens * (this.settings.invertY ? -1 : 1);
+    this.pitch = Math.max(-Math.PI / 2.1, Math.min(Math.PI / 2.1, this.pitch - pitchDelta));
+  }
+
+  public setTouchFiring(active: boolean) {
+    if (!this.isMapLoaded || this.stats.isPaused || this.stats.isGameOver) {
+      this.isFiring = false;
+      return;
+    }
+    this.isFiring = active;
+    if (active) {
+      this.shoot();
+    }
+  }
+
+  public setTouchAiming(active: boolean) {
+    if (!this.isMapLoaded || this.stats.isPaused || this.stats.isGameOver) {
+      this.isAiming = false;
+      return;
+    }
+    this.isAiming = active;
+    this.onStateUpdate?.();
+  }
+
+  public triggerTouchJump() {
+    if (!this.isMapLoaded || this.stats.isPaused || this.stats.isGameOver || this.isDowned) return;
+    if (this.isGrounded) {
+      this.playerVel.y = 5.5;
+      this.isGrounded = false;
+    }
+  }
+
+  public setTouchInteract(active: boolean) {
+    if (!this.isMapLoaded || this.stats.isPaused || this.stats.isGameOver) {
+      this.isHoldingInteract = false;
+      return;
+    }
+    this.isHoldingInteract = active;
+    if (active) {
+      this.triggerInteraction();
+    } else {
+      this.repairTimer = 0;
+      this.mpReviveHoldTimer = 0;
+    }
+  }
+
+  public pauseGame() {
+    if (!this.isMapLoaded || this.stats.isGameOver) return;
+    this.keys = {};
+    this.touchMoveVec = { x: 0, y: 0 };
+    this.touchSprint = false;
+    this.isFiring = false;
+    this.isAiming = false;
+    this.isHoldingInteract = false;
+    this.playerVel.set(0, 0, 0);
+    this.stats.isPaused = true;
+    if (document.pointerLockElement === this.container) {
+      document.exitPointerLock();
+    }
+    if (!this.isMultiplayer) {
+      crazyGames.stopGameplay();
+      this.saveCurrentMatch();
+    }
+    this.onStateUpdate?.();
+  }
+
+  public resumeGame() {
+    if (!this.isMapLoaded || this.stats.isGameOver) return;
+    if (this.isTouchMode) {
+      this.stats.isPaused = false;
+      crazyGames.startGameplay();
+      this.onStateUpdate?.();
+    } else {
+      this.requestLock();
+    }
+  }
+
+  public requestLock() {
+    if (!this.container || !this.isMapLoaded || this.stats.isGameOver) return;
+    if (this.isTouchMode) {
+      this.stats.isPaused = false;
+      crazyGames.startGameplay();
+      this.onStateUpdate?.();
+      return;
+    }
+    this.container.requestPointerLock();
   }
 
   // Game State
@@ -1558,8 +1670,12 @@ export class GameEngine {
     // Controls listeners
     this.setupEventListeners();
 
-    // Window Resize Handler
+    // Window & Container Resize Handler (keeps Three.js fitted to Phone/Tablet/Computer screens)
     window.addEventListener('resize', this.onWindowResize);
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver(() => this.onWindowResize());
+      this.resizeObserver.observe(this.container);
+    }
 
     // Start Game Loop
     this.animate();
@@ -3252,9 +3368,9 @@ export class GameEngine {
     // Prevent context menu on container for smooth right-click ADS
     this.container.addEventListener('contextmenu', (e) => e.preventDefault());
 
-    // Mouse Click to Request Pointer Lock
+    // Mouse Click to Request Pointer Lock (Desktop/Computer only)
     this.container.addEventListener('click', (e) => {
-      if (e.button === 0) {
+      if (e.button === 0 && !this.isTouchMode) {
         if (this.isMapLoaded && !this.isPointerLocked && !this.stats.isGameOver && !this.stats.isPaused) {
           this.container.requestPointerLock();
         }
@@ -3263,6 +3379,7 @@ export class GameEngine {
 
     // Left-Click Fire (supports both semi-auto tap and full-auto hold) & Right-Click ADS
     window.addEventListener('mousedown', (e) => {
+      if (this.isTouchMode) return;
       if (e.button === 0 && this.isPointerLocked) {
         this.isFiring = true;
         this.shoot();
@@ -3273,6 +3390,7 @@ export class GameEngine {
     });
 
     window.addEventListener('mouseup', (e) => {
+      if (this.isTouchMode) return;
       if (e.button === 0) {
         this.isFiring = false;
       } else if (e.button === 2) {
@@ -3283,6 +3401,7 @@ export class GameEngine {
 
     document.addEventListener('pointerlockchange', () => {
       this.isPointerLocked = document.pointerLockElement === this.container;
+      if (this.isTouchMode) return;
       
       // Reset held key states & player velocity so player doesn't get stuck moving on pause/unlock
       this.keys = {};
@@ -3311,6 +3430,8 @@ export class GameEngine {
 
     window.addEventListener('blur', () => {
       this.keys = {};
+      this.touchMoveVec = { x: 0, y: 0 };
+      this.touchSprint = false;
       this.isFiring = false;
       this.playerVel.set(0, 0, 0);
     });
@@ -3318,6 +3439,8 @@ export class GameEngine {
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
         this.keys = {};
+        this.touchMoveVec = { x: 0, y: 0 };
+        this.touchSprint = false;
         this.isFiring = false;
         this.playerVel.set(0, 0, 0);
         if (this.isMapLoaded && !this.stats.isGameOver) {
@@ -3347,7 +3470,12 @@ export class GameEngine {
 
     // Keyboard press
     window.addEventListener('keydown', (e) => {
-      if (!this.isMapLoaded || !this.isPointerLocked) return;
+      const canInput =
+        this.isMapLoaded &&
+        !this.stats.isPaused &&
+        !this.stats.isGameOver &&
+        (this.isPointerLocked || this.isTouchMode);
+      if (!canInput) return;
 
       this.keys[e.code] = true;
 
@@ -3373,7 +3501,7 @@ export class GameEngine {
     });
 
     window.addEventListener('keyup', (e) => {
-      if (!this.isMapLoaded || !this.isPointerLocked) return;
+      if (!this.isMapLoaded) return;
 
       this.keys[e.code] = false;
       if (e.code === 'KeyE') {
@@ -3394,9 +3522,12 @@ export class GameEngine {
   }
 
   private onWindowResize = () => {
-    this.camera.aspect = window.innerWidth / window.innerHeight;
+    const w = this.container?.clientWidth || window.innerWidth;
+    const h = this.container?.clientHeight || window.innerHeight;
+    if (w <= 0 || h <= 0) return;
+    this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setSize(w, h);
   };
 
   // Switch Active Weapon
@@ -4818,19 +4949,23 @@ export class GameEngine {
     euler.y = this.yaw;
     this.camera.quaternion.setFromEuler(euler);
 
-    // WASD Movement
+    // WASD + Virtual Thumbstick Movement
     const moveDir = new THREE.Vector3();
     if (this.keys['KeyW']) moveDir.z -= 1;
     if (this.keys['KeyS']) moveDir.z += 1;
     if (this.keys['KeyA']) moveDir.x -= 1;
     if (this.keys['KeyD']) moveDir.x += 1;
+    moveDir.x += this.touchMoveVec.x;
+    moveDir.z -= this.touchMoveVec.y;
 
-    moveDir.normalize();
+    if (moveDir.length() > 1) {
+      moveDir.normalize();
+    }
 
     // Speed calculation
-    const isSprint = !this.isDowned && (this.keys['ShiftLeft'] || this.keys['ShiftRight']);
+    const isSprint = !this.isDowned && (this.keys['ShiftLeft'] || this.keys['ShiftRight'] || this.touchSprint);
     const speed = this.isDowned ? 1.8 : isSprint ? 7.5 : 4.5;
-    this.mpLocalMoving = moveDir.length() > 0;
+    this.mpLocalMoving = moveDir.length() > 0.05;
 
     // Transform move vector relative to camera yaw
     const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
@@ -5042,9 +5177,10 @@ export class GameEngine {
       this.shootCooldown -= delta;
     }
 
-    // Continuous trigger for automatic weapons when holding Left Click
+    // Continuous trigger for automatic weapons when holding Fire
     const activeWep = this.playerWeapons[this.currentWeaponIndex];
-    if (this.isFiring && this.isPointerLocked && activeWep?.stats.isAuto && !activeWep.isReloading && this.shootCooldown <= 0) {
+    const canAutoFire = this.isPointerLocked || (this.isTouchMode && !this.stats.isPaused && !this.stats.isGameOver);
+    if (this.isFiring && canAutoFire && activeWep?.stats.isAuto && !activeWep.isReloading && this.shootCooldown <= 0) {
       this.shoot();
     }
 
@@ -6029,11 +6165,13 @@ export class GameEngine {
     crazyGames.startGameplay();
     this.updateCrazyGamesContext();
     this.saveCurrentMatch();
-    this.container.requestPointerLock();
+    this.requestLock();
   }
 
   public dispose() {
     window.removeEventListener('resize', this.onWindowResize);
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
     this.renderer.dispose();
     this.container.innerHTML = '';
   }
