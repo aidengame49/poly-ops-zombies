@@ -6,6 +6,7 @@
 class SoundEngine {
   private ctx: AudioContext | null = null;
   private isMuted: boolean = false;
+  private platformMuted: boolean = false;
   private masterVolume: number = 0.8;
 
   constructor() {
@@ -13,6 +14,7 @@ class SoundEngine {
   }
 
   private initCtx() {
+    if (this.isEffectivelyMuted()) return;
     if (!this.ctx) {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (AudioCtx) {
@@ -20,12 +22,41 @@ class SoundEngine {
       }
     }
     if (this.ctx && this.ctx.state === 'suspended') {
-      this.ctx.resume();
+      this.ctx.resume().catch(() => {});
+    }
+  }
+
+  private syncContextMuteState() {
+    if (!this.ctx) return;
+    if (this.isEffectivelyMuted()) {
+      if (this.ctx.state === 'running') {
+        this.ctx.suspend().catch(() => {});
+      }
+    } else if (this.ctx.state === 'suspended') {
+      this.ctx.resume().catch(() => {});
     }
   }
 
   public setMuted(muted: boolean) {
     this.isMuted = muted;
+    this.syncContextMuteState();
+  }
+
+  public getMuted(): boolean {
+    return this.isMuted;
+  }
+
+  public setPlatformMuted(muted: boolean) {
+    this.platformMuted = muted;
+    this.syncContextMuteState();
+  }
+
+  public isPlatformMuted(): boolean {
+    return this.platformMuted;
+  }
+
+  public isEffectivelyMuted(): boolean {
+    return this.isMuted || this.platformMuted;
   }
 
   public setVolume(vol: number) {
@@ -34,7 +65,7 @@ class SoundEngine {
 
   // Shoot sound based on weapon type, PaP state, and optional weapon ID
   public playShoot(type: string, isPap: boolean = false, weaponId?: string) {
-    if (this.isMuted) return;
+    if (this.isEffectivelyMuted()) return;
     this.initCtx();
     if (!this.ctx) return;
 
@@ -137,7 +168,7 @@ class SoundEngine {
 
   // Reload sound
   public playReload() {
-    if (this.isMuted) return;
+    if (this.isEffectivelyMuted()) return;
     this.initCtx();
     if (!this.ctx) return;
 
@@ -158,7 +189,7 @@ class SoundEngine {
 
     // Mechanical click 2 (slide release)
     setTimeout(() => {
-      if (!this.ctx) return;
+      if (!this.ctx || this.isEffectivelyMuted()) return;
       const t = this.ctx.currentTime;
       const osc2 = this.ctx.createOscillator();
       const gain2 = this.ctx.createGain();
@@ -176,7 +207,7 @@ class SoundEngine {
 
   // Hitmarker audio click/ding
   public playHitmarker(isKill: boolean = false, isHeadshot: boolean = false) {
-    if (this.isMuted) return;
+    if (this.isEffectivelyMuted()) return;
     this.initCtx();
     if (!this.ctx) return;
 
@@ -201,7 +232,7 @@ class SoundEngine {
 
   // Zombie groan / attack sound
   public playZombieGrowl() {
-    if (this.isMuted) return;
+    if (this.isEffectivelyMuted()) return;
     this.initCtx();
     if (!this.ctx) return;
 
@@ -231,7 +262,7 @@ class SoundEngine {
 
   // Zombie attacks player (thud damage sound)
   public playPlayerHit() {
-    if (this.isMuted) return;
+    if (this.isEffectivelyMuted()) return;
     this.initCtx();
     if (!this.ctx) return;
 
@@ -255,7 +286,7 @@ class SoundEngine {
 
   // Board wooden plank repair / break sound
   public playPlankWood(isRepair: boolean = true) {
-    if (this.isMuted) return;
+    if (this.isEffectivelyMuted()) return;
     this.initCtx();
     if (!this.ctx) return;
 
@@ -287,7 +318,7 @@ class SoundEngine {
 
   // Perk Purchase Chime Jingle
   public playPerkJingle(perkType: string) {
-    if (this.isMuted) return;
+    if (this.isEffectivelyMuted()) return;
     this.initCtx();
     if (!this.ctx) return;
 
@@ -319,7 +350,7 @@ class SoundEngine {
 
   // Hyper-Forge upgrade sound effect
   public playPackAPunch() {
-    if (this.isMuted) return;
+    if (this.isEffectivelyMuted()) return;
     this.initCtx();
     if (!this.ctx) return;
 
@@ -343,7 +374,7 @@ class SoundEngine {
 
   // Round Change / Round Start Horror Bell Stinger
   public playRoundChange(isStart: boolean = true) {
-    if (this.isMuted) return;
+    if (this.isEffectivelyMuted()) return;
     this.initCtx();
     if (!this.ctx) return;
 
@@ -369,7 +400,7 @@ class SoundEngine {
   }
 
   public playExplosion() {
-    if (this.isMuted) return;
+    if (this.isEffectivelyMuted()) return;
     this.initCtx();
     if (!this.ctx) return;
 
@@ -396,7 +427,7 @@ class SoundEngine {
   }
 
   public playTeleport() {
-    if (this.isMuted) return;
+    if (this.isEffectivelyMuted()) return;
     this.initCtx();
     if (!this.ctx) return;
 
@@ -417,7 +448,7 @@ class SoundEngine {
   }
 
   public playFlashlightClick(isOn: boolean) {
-    if (this.isMuted) return;
+    if (this.isEffectivelyMuted()) return;
     this.initCtx();
     if (!this.ctx) return;
 
@@ -438,7 +469,7 @@ class SoundEngine {
   }
 
   public playGrenadeThrow() {
-    if (this.isMuted) return;
+    if (this.isEffectivelyMuted()) return;
     this.initCtx();
     if (!this.ctx) return;
 
@@ -464,7 +495,7 @@ class SoundEngine {
   }
 
   public playFlashbang() {
-    if (this.isMuted) return;
+    if (this.isEffectivelyMuted()) return;
     this.initCtx();
     if (!this.ctx) return;
 
@@ -503,7 +534,7 @@ class SoundEngine {
   }
 
   public playCryoExplosion() {
-    if (this.isMuted) return;
+    if (this.isEffectivelyMuted()) return;
     this.initCtx();
     if (!this.ctx) return;
 

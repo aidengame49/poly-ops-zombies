@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { CustomMapConfig, getDefaultMapConfig } from '../types/game';
 import { OFFICIAL_SECTOR_ZERO_ID, OFFICIAL_BLIGHTED_WOODS_ID, getBlightedWoodsConfig } from '../data/officialMaps';
+import { gameStorage, STORAGE_KEYS } from '../utils/crazyGames';
 import { Crosshair, Map, Trash2, Check, Plus, Box, Shield, Flame, Play, X, Trees } from 'lucide-react';
 
 interface MapSelectModalProps {
@@ -23,19 +24,19 @@ export const MapSelectModal: React.FC<MapSelectModalProps> = ({
   const blightedWoodsMap = getBlightedWoodsConfig();
 
   useEffect(() => {
-    // Load custom maps list from localStorage
+    // Load custom maps list from unified storage (CrazyGames Data Module or localStorage)
     try {
-      const savedList = localStorage.getItem('custom_zombies_maps_list');
+      const savedList = gameStorage.getItem(STORAGE_KEYS.CUSTOM_MAPS_LIST);
       if (savedList) {
         setCustomMaps(JSON.parse(savedList));
       } else {
         // Migration: check single custom map
-        const singleMap = localStorage.getItem('custom_zombies_map');
+        const singleMap = gameStorage.getItem(STORAGE_KEYS.CUSTOM_MAP_DRAFT);
         if (singleMap) {
           const parsed = JSON.parse(singleMap);
           if (parsed && parsed.id !== defaultMap.id && parsed.id !== blightedWoodsMap.id) {
             setCustomMaps([parsed]);
-            localStorage.setItem('custom_zombies_maps_list', JSON.stringify([parsed]));
+            gameStorage.setItem(STORAGE_KEYS.CUSTOM_MAPS_LIST, JSON.stringify([parsed]));
           }
         }
       }
@@ -48,7 +49,7 @@ export const MapSelectModal: React.FC<MapSelectModalProps> = ({
     e.stopPropagation();
     const updated = customMaps.filter((m) => m.id !== mapId);
     setCustomMaps(updated);
-    localStorage.setItem('custom_zombies_maps_list', JSON.stringify(updated));
+    gameStorage.setItem(STORAGE_KEYS.CUSTOM_MAPS_LIST, JSON.stringify(updated));
     if (selectedId === mapId) {
       setSelectedId(OFFICIAL_SECTOR_ZERO_ID);
     }

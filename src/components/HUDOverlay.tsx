@@ -5,17 +5,16 @@ import { HowToPlayModal } from './HowToPlayModal';
 import { MapMakerView } from './MapMakerView';
 import { MapSelectModal } from './MapSelectModal';
 import { WeaponsLoadoutModal } from './WeaponsLoadoutModal';
-import { CustomMapConfig, PlayerLoadout, getDefaultMapConfig } from '../types/game';
+import { CustomMapConfig, PlayerLoadout, SavedMatchState, getDefaultMapConfig } from '../types/game';
 import { OFFICIAL_SECTOR_ZERO_ID, OFFICIAL_BLIGHTED_WOODS_ID, isOfficialMapId } from '../data/officialMaps';
 import { DEFAULT_LOADOUT, GRENADES_MAP, WEAPONS_MAP, sanitizeLoadout } from '../data/weapons';
-import { Volume2, VolumeX, Play, RotateCcw, Shield, Zap, Target, Sliders, HelpCircle, Flame, Home, Crosshair, Box, Flashlight, Bomb } from 'lucide-react';
+import { Volume2, VolumeX, Play, RotateCcw, Shield, Zap, Target, Sliders, HelpCircle, Flame, Home, Crosshair, Box, Flashlight, Bomb, Save, Cloud } from 'lucide-react';
 import { soundEngine } from '../utils/soundEngine';
-
-const LOADOUT_STORAGE_KEY = 'polyops_player_loadout';
+import { crazyGames, gameStorage, STORAGE_KEYS } from '../utils/crazyGames';
 
 function loadSavedLoadout(): PlayerLoadout {
   try {
-    const raw = localStorage.getItem(LOADOUT_STORAGE_KEY);
+    const raw = gameStorage.getItem(STORAGE_KEYS.LOADOUT);
     if (raw) {
       return sanitizeLoadout(JSON.parse(raw));
     }
@@ -38,6 +37,13 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
   const [selectedMapConfig, setSelectedMapConfig] = useState<CustomMapConfig>(() => getDefaultMapConfig());
   const [playerLoadout, setPlayerLoadout] = useState<PlayerLoadout>(() => loadSavedLoadout());
   const [isTestingCustomMap, setIsTestingCustomMap] = useState<boolean>(false);
+  const [savedRun, setSavedRun] = useState<SavedMatchState | null>(() => gameStorage.getJSON<SavedMatchState>(STORAGE_KEYS.SAVED_RUN));
+  const [saveToast, setSaveToast] = useState<boolean>(false);
+  const [cgInfo, setCgInfo] = useState<{ active: boolean; username: string | null; platformMuted: boolean }>({
+    active: crazyGames.isActive,
+    username: crazyGames.user?.username || null,
+    platformMuted: crazyGames.isMuteAudioEnforced,
+  });
 
   useEffect(() => {
     if (!engine) return;
@@ -66,6 +72,7 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
         maxHp: engine.maxHp,
         prompt: engine.currentPrompt,
         perks: { ...engine.perks },
+        records: { ...engine.records },
         scoreNotifications: [...engine.scoreNotifications],
         grenade: {
           type: gType,
@@ -85,7 +92,19 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
             }
           : null,
       });
+      setSavedRun(engine.getSavedMatch());
     };
+
+    const unsubscribeCg = crazyGames.subscribe(() => {
+      setCgInfo({
+        active: crazyGames.isActive,
+        username: crazyGames.user?.username || null,
+        platformMuted: crazyGames.isMuteAudioEnforced,
+      });
+      setPlayerLoadout(loadSavedLoadout());
+      setSavedRun(engine.getSavedMatch());
+      updateUI();
+    });
 
     engine.onStateUpdate = updateUI;
     engine.onHitmarker = (isKill, isHeadshot) => {
@@ -108,11 +127,16 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
     updateUI();
 
     return () => {
+      unsubscribeCg();
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [engine]);
 
   const toggleMute = () => {
+    if (cgInfo.platformMuted) {
+      soundEngine.setPlatformMuted(true);
+      return;
+    }
     const next = !isMuted;
     setIsMuted(next);
     soundEngine.setMuted(next);
@@ -122,7 +146,7 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
     const clean = sanitizeLoadout(next);
     setPlayerLoadout(clean);
     try {
-      localStorage.setItem(LOADOUT_STORAGE_KEY, JSON.stringify(clean));
+      gameStorage.setItem(STORAGE_KEYS.LOADOUT, JSON.stringify(clean));
     } catch (e) {
       console.warn('Failed to persist loadout:', e);
     }
@@ -142,6 +166,42 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
       engine?.loadMap(targetMap);
     }
     engine?.requestLock();
+  };
+
+  const handleResumeSavedRun = () => {
+    if (!engine || !savedRun) return;
+    setActiveModal('none');
+    const isCustom = !isOfficialMapId(savedRun.mapId);
+    setIsTestingCustomMap(isCustom);
+    const ok = engine.loadSavedMatch(savedRun);
+    if (ok) {
+      engine.requestLock();
+    } else {
+      handleStartGame();
+    }
+  };
+
+  const handleManualSaveProgress = () => {
+    if (!engine) return;
+    const ok = engine.saveCurrentMatch();
+    if (ok) {
+      setSaveToast(true);
+      setTimeout(() => setSaveToast(false), 2000);
+    }
+  };
+
+  const handleGameOverRetry = async () => {
+    if (gameState?.round >= 2) {
+      await crazyGames.requestMidgameAd();
+    }
+    handleStartGame();
+  };
+
+  const handleGameOverMainMenu = async () => {
+    if (gameState?.round >= 2) {
+      await crazyGames.requestMidgameAd();
+    }
+    handleReturnToMainMenu();
   };
 
   const handleStartCustomMap = (config: CustomMapConfig) => {
@@ -450,11 +510,25 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
                 <p className="text-slate-400 text-sm font-semibold tracking-widest mt-1">3D UNDEAD SURVIVAL</p>
               </div>
 
+              {savedRun && (
+                <button
+                  onClick={handleResumeSavedRun}
+                  className="w-full flex flex-col items-center justify-center bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600 text-white font-extrabold py-3 px-4 rounded-xl shadow-[0_0_20px_rgba(16,185,129,0.4)] transition-all hover:scale-[1.03] active:scale-95 cursor-pointer"
+                >
+                  <span className="flex items-center gap-2 text-lg tracking-wider">
+                    <Play className="w-5 h-5 fill-white" /> RESUME SAVED RUN
+                  </span>
+                  <span className="text-[11px] font-bold text-emerald-100 uppercase tracking-wide">
+                    Round {savedRun.stats.round} • {savedRun.mapName} • {savedRun.stats.score.toLocaleString()} PTS
+                  </span>
+                </button>
+              )}
+
               <button
                 onClick={handleStartGame}
                 className="w-full flex items-center justify-center gap-3 bg-red-600 hover:bg-red-500 text-white font-extrabold text-xl py-4 rounded-xl shadow-[0_0_25px_rgba(220,38,38,0.5)] transition-all hover:scale-105 active:scale-95 cursor-pointer tracking-wider"
               >
-                <Play className="w-6 h-6 fill-white" /> PLAY SURVIVAL
+                <Play className="w-6 h-6 fill-white" /> {savedRun ? 'NEW SURVIVAL MATCH' : 'PLAY SURVIVAL'}
               </button>
 
               <button
@@ -542,19 +616,36 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
                     </div>
                   </div>
                   <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-xl">
-                    <div className="text-[11px] font-bold text-slate-400 uppercase">MAX SURVIVAL RECORD</div>
-                    <div className="text-2xl font-black text-red-500">ROUND {gameState.round}</div>
+                    <div className="text-[11px] font-bold text-slate-400 uppercase">BEST SURVIVAL RECORD</div>
+                    <div className="text-2xl font-black text-red-500">
+                      ROUND {gameState.records?.bestRound || gameState.round}
+                    </div>
+                    <div className="text-[10px] text-slate-500 font-bold uppercase">
+                      High Score: {(gameState.records?.bestScore || 500).toLocaleString()}
+                    </div>
                   </div>
                   <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-xl">
-                    <div className="text-[11px] font-bold text-slate-400 uppercase">ZOMBIES ELIMINATED</div>
-                    <div className="text-2xl font-black text-amber-400">{gameState.kills.toLocaleString()} KILLS</div>
+                    <div className="text-[11px] font-bold text-slate-400 uppercase">CAREER ELIMINATIONS</div>
+                    <div className="text-2xl font-black text-amber-400">
+                      {(gameState.records?.totalKills || gameState.kills).toLocaleString()} KILLS
+                    </div>
+                    <div className="text-[10px] text-slate-500 font-bold uppercase">
+                      Headshots: {(gameState.records?.totalHeadshots || 0).toLocaleString()}
+                    </div>
                   </div>
                 </div>
               </div>
 
               <div className="pt-6 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
-                <span>V1.4 Procedural PBR Engine</span>
-                <span className="text-emerald-400 font-semibold">Ready for Combat</span>
+                <span>V1.5 Procedural PBR Engine</span>
+                {cgInfo.active ? (
+                  <span className="inline-flex items-center gap-1.5 text-cyan-400 font-bold">
+                    <Cloud className="w-3.5 h-3.5" />
+                    {cgInfo.username ? `CrazyGames Cloud: ${cgInfo.username}` : 'CrazyGames Sync Active'}
+                  </span>
+                ) : (
+                  <span className="text-emerald-400 font-semibold">Ready for Combat</span>
+                )}
               </div>
             </div>
           </div>
@@ -592,11 +683,36 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
               </button>
 
               <button
-                onClick={toggleMute}
-                className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold py-3 rounded-xl border border-slate-700 transition-all cursor-pointer"
+                onClick={handleManualSaveProgress}
+                className="w-full flex items-center justify-center gap-2 bg-emerald-900/60 hover:bg-emerald-800/80 text-emerald-200 font-bold py-3.5 rounded-xl border border-emerald-600/60 transition-all cursor-pointer"
               >
-                {isMuted ? <VolumeX className="w-5 h-5 text-red-400" /> : <Volume2 className="w-5 h-5 text-emerald-400" />}
-                {isMuted ? 'UNMUTE AUDIO' : 'MUTE AUDIO'}
+                <Save className="w-5 h-5 text-emerald-400" />
+                {saveToast
+                  ? cgInfo.active
+                    ? 'SAVED TO CRAZYGAMES CLOUD!'
+                    : 'PROGRESS SAVED!'
+                  : 'SAVE GAME PROGRESS'}
+              </button>
+
+              <button
+                onClick={toggleMute}
+                disabled={cgInfo.platformMuted}
+                className={`w-full flex items-center justify-center gap-2 font-semibold py-3 rounded-xl border transition-all ${
+                  cgInfo.platformMuted
+                    ? 'bg-slate-900/70 text-slate-400 border-slate-800 cursor-not-allowed'
+                    : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700 cursor-pointer'
+                }`}
+              >
+                {isMuted || cgInfo.platformMuted ? (
+                  <VolumeX className="w-5 h-5 text-red-400" />
+                ) : (
+                  <Volume2 className="w-5 h-5 text-emerald-400" />
+                )}
+                {cgInfo.platformMuted
+                  ? 'AUDIO MUTED BY CRAZYGAMES'
+                  : isMuted
+                  ? 'UNMUTE AUDIO'
+                  : 'MUTE AUDIO'}
               </button>
 
               {isTestingCustomMap && (
@@ -650,14 +766,14 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
 
             <div className="flex flex-col gap-3">
               <button
-                onClick={handleStartGame}
+                onClick={handleGameOverRetry}
                 className="w-full flex items-center justify-center gap-2 bg-red-600 hover:bg-red-500 text-white font-bold text-xl py-4 rounded-xl shadow-lg transition-all hover:scale-105 active:scale-95 cursor-pointer"
               >
                 <RotateCcw className="w-6 h-6" /> TRY AGAIN
               </button>
 
               <button
-                onClick={handleReturnToMainMenu}
+                onClick={handleGameOverMainMenu}
                 className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold py-3 rounded-xl border border-slate-700 transition-all cursor-pointer"
               >
                 <Home className="w-5 h-5 text-red-400" /> MAIN MENU

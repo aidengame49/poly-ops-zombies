@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { GameEngine } from '../game/GameEngine';
 import { Sliders, Sun, Eye, Volume2, MousePointer, RotateCcw, X } from 'lucide-react';
+import { crazyGames } from '../utils/crazyGames';
 
 interface SettingsModalProps {
   engine: GameEngine | null;
@@ -8,6 +9,14 @@ interface SettingsModalProps {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ engine, onClose }) => {
+  const [platformMuted, setPlatformMuted] = useState<boolean>(crazyGames.isMuteAudioEnforced);
+
+  useEffect(() => {
+    return crazyGames.subscribe(() => {
+      setPlatformMuted(crazyGames.isMuteAudioEnforced);
+    });
+  }, []);
+
   if (!engine) return null;
 
   const { settings } = engine;
@@ -246,9 +255,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ engine, onClose })
             {/* Master Volume */}
             <div className="bg-slate-950/80 border border-slate-800 p-4 rounded-xl space-y-2">
               <div className="flex items-center justify-between text-sm font-semibold text-slate-200">
-                <span>Master Game & SFX Volume</span>
+                <span>Master Game &amp; SFX Volume</span>
                 <span className="text-emerald-400 font-bold font-mono">
-                  {settings.masterVolume}%
+                  {platformMuted ? 'MUTED (CG)' : `${settings.masterVolume}%`}
                 </span>
               </div>
               <input
@@ -258,8 +267,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ engine, onClose })
                 step="5"
                 value={settings.masterVolume}
                 onChange={handleVolumeChange}
-                className="w-full accent-emerald-500 cursor-pointer h-2 bg-slate-800 rounded-lg"
+                disabled={platformMuted}
+                className={`w-full accent-emerald-500 h-2 bg-slate-800 rounded-lg ${
+                  platformMuted ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                }`}
               />
+              {platformMuted && (
+                <div className="text-[11px] text-amber-400 font-semibold">
+                  Audio is currently muted by CrazyGames platform settings.
+                </div>
+              )}
             </div>
           </div>
         </div>

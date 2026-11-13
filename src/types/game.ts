@@ -126,6 +126,73 @@ export interface GameStats {
   roundBreakTimer: number;
 }
 
+export interface PlayerRecords {
+  bestRound: number;
+  bestScore: number;
+  totalKills: number;
+  totalHeadshots: number;
+  totalBoardsRepaired: number;
+  gamesPlayed: number;
+}
+
+export interface PlayerSettings {
+  mouseSensitivity: number;
+  worldBrightness: number;
+  exposure: number;
+  fov: number;
+  flashlightIntensity: number;
+  invertY: boolean;
+  masterVolume: number;
+}
+
+export interface SavedZombieState {
+  x: number;
+  y: number;
+  z: number;
+  health: number;
+  maxHealth: number;
+  speed: number;
+  damage: number;
+  windowId: number | null;
+  state: Zombie['state'];
+  stunTimer?: number;
+  slowTimer?: number;
+  burnTimer?: number;
+}
+
+export interface SavedMatchState {
+  version: number;
+  savedAt: number;
+  mapId: string;
+  mapName: string;
+  customMapConfig?: CustomMapConfig;
+  stats: GameStats;
+  player: {
+    x: number;
+    y: number;
+    z: number;
+    yaw: number;
+    pitch: number;
+    playerHp: number;
+    maxHp: number;
+    isFlashlightOn: boolean;
+  };
+  perks: PerkState;
+  loadout: PlayerLoadout;
+  grenadeCount: number;
+  maxGrenades: number;
+  weapons: {
+    stats: WeaponStats;
+    currentClip: number;
+    currentReserve: number;
+  }[];
+  currentWeaponIndex: number;
+  barriers: { id: number; planks: number }[];
+  explodedBarrelIds: string[];
+  zombies: SavedZombieState[];
+  zombiesToSpawn: number;
+}
+
 // -------------------------------------------------------------
 // Map Maker & Level Editor Data Definitions
 // -------------------------------------------------------------

@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { CustomMapConfig, MapObject, MapObjectType, TexturePattern, getDefaultMapConfig } from '../types/game';
 import { MapEditorEngine } from '../game/MapEditorEngine';
 import { WALL_BUY_CONFIG, WALL_BUY_ITEMS, WallBuyDefinition } from '../data/weapons';
+import { gameStorage, STORAGE_KEYS } from '../utils/crazyGames';
 import {
   Play,
   RotateCcw,
@@ -43,7 +44,7 @@ export const MapMakerView: React.FC<MapMakerViewProps> = ({ onPlayMap, onClose }
   const editorEngineRef = useRef<MapEditorEngine | null>(null);
 
   const [mapConfig, setMapConfig] = useState<CustomMapConfig>(() => {
-    const saved = localStorage.getItem('custom_zombies_map');
+    const saved = gameStorage.getItem(STORAGE_KEYS.CUSTOM_MAP_DRAFT);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -129,7 +130,7 @@ export const MapMakerView: React.FC<MapMakerViewProps> = ({ onPlayMap, onClose }
         const ok = editorEngineRef.current.importTrackCode(trimmed);
         if (ok) {
           setMapConfig({ ...editorEngineRef.current.mapConfig });
-          localStorage.setItem('custom_zombies_map', JSON.stringify(editorEngineRef.current.mapConfig));
+          gameStorage.setItem(STORAGE_KEYS.CUSTOM_MAP_DRAFT, JSON.stringify(editorEngineRef.current.mapConfig));
           return true;
         }
         return false;
@@ -170,7 +171,7 @@ export const MapMakerView: React.FC<MapMakerViewProps> = ({ onPlayMap, onClose }
       };
 
       setMapConfig(updatedCfg);
-      localStorage.setItem('custom_zombies_map', JSON.stringify(updatedCfg));
+      gameStorage.setItem(STORAGE_KEYS.CUSTOM_MAP_DRAFT, JSON.stringify(updatedCfg));
       return true;
     } catch (err: any) {
       alert('Invalid or corrupted track code: ' + (err?.message || 'Could not parse data'));
@@ -217,7 +218,7 @@ export const MapMakerView: React.FC<MapMakerViewProps> = ({ onPlayMap, onClose }
     engine.onSelectObject = (id) => setSelectedId(id);
     engine.onConfigChange = (newConfig) => {
       setMapConfig({ ...newConfig });
-      localStorage.setItem('custom_zombies_map', JSON.stringify(newConfig));
+      gameStorage.setItem(STORAGE_KEYS.CUSTOM_MAP_DRAFT, JSON.stringify(newConfig));
     };
 
     return () => {
@@ -300,9 +301,9 @@ export const MapMakerView: React.FC<MapMakerViewProps> = ({ onPlayMap, onClose }
   const handleSaveMap = (): CustomMapConfig => {
     const latestConfig = editorEngineRef.current ? JSON.parse(JSON.stringify(editorEngineRef.current.mapConfig)) : mapConfig;
     try {
-      localStorage.setItem('custom_zombies_map', JSON.stringify(latestConfig));
+      gameStorage.setItem(STORAGE_KEYS.CUSTOM_MAP_DRAFT, JSON.stringify(latestConfig));
 
-      const existingList = localStorage.getItem('custom_zombies_maps_list');
+      const existingList = gameStorage.getItem(STORAGE_KEYS.CUSTOM_MAPS_LIST);
       let mapsList: CustomMapConfig[] = existingList ? JSON.parse(existingList) : [];
 
       const idx = mapsList.findIndex((m) => m.id === latestConfig.id);
@@ -312,7 +313,7 @@ export const MapMakerView: React.FC<MapMakerViewProps> = ({ onPlayMap, onClose }
         mapsList.push(latestConfig);
       }
 
-      localStorage.setItem('custom_zombies_maps_list', JSON.stringify(mapsList));
+      gameStorage.setItem(STORAGE_KEYS.CUSTOM_MAPS_LIST, JSON.stringify(mapsList));
       setSaveToast(true);
       setTimeout(() => setSaveToast(false), 2000);
     } catch (e) {
@@ -337,7 +338,7 @@ export const MapMakerView: React.FC<MapMakerViewProps> = ({ onPlayMap, onClose }
     };
 
     setMapConfig(newCfg);
-    localStorage.setItem('custom_zombies_map', JSON.stringify(newCfg));
+    gameStorage.setItem(STORAGE_KEYS.CUSTOM_MAP_DRAFT, JSON.stringify(newCfg));
     if (editorEngineRef.current) {
       editorEngineRef.current.mapConfig = newCfg;
       editorEngineRef.current.rebuildScene();
@@ -448,7 +449,7 @@ export const MapMakerView: React.FC<MapMakerViewProps> = ({ onPlayMap, onClose }
     defaultCfg.id = `custom_map_${Date.now()}`;
     defaultCfg.name = 'Custom Facility Draft';
     setMapConfig(defaultCfg);
-    localStorage.setItem('custom_zombies_map', JSON.stringify(defaultCfg));
+    gameStorage.setItem(STORAGE_KEYS.CUSTOM_MAP_DRAFT, JSON.stringify(defaultCfg));
     if (editorEngineRef.current) {
       editorEngineRef.current.mapConfig = defaultCfg;
       editorEngineRef.current.rebuildScene();

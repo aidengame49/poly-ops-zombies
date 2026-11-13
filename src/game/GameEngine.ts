@@ -14,8 +14,20 @@ import {
   MapObjectType,
   GrenadeType,
   PlayerLoadout,
+  PlayerRecords,
+  PlayerSettings,
+  SavedMatchState,
 } from '../types/game';
 import { soundEngine } from '../utils/soundEngine';
+import { crazyGames, gameStorage, STORAGE_KEYS } from '../utils/crazyGames';
+import { multiplayerClient } from '../utils/multiplayerClient';
+import type { CoopMemberState, MultiplayerRoomState, NetZombieState } from '../types/multiplayer';
+import {
+  createRemotePlayerRig,
+  disposeRemotePlayerRig,
+  redrawNameplate,
+  type RemotePlayerRig,
+} from './remotePlayerMesh';
 import {
   WEAPONS_MAP,
   ARMORY_CHEST_POOL,
@@ -1117,7 +1129,7 @@ export class GameEngine {
   // Entities
   public zombies: Zombie[] = [];
   private particles: Particle[] = [];
-  private bullets: {
+  public bullets: {
     mesh: THREE.Mesh;
     vel: THREE.Vector3;
     life: number;
@@ -1127,12 +1139,14 @@ export class GameEngine {
     pierceLeft?: number;
     hitZombieIds?: Set<string>;
     color?: string;
+    isVisualOnly?: boolean;
   }[] = [];
   private thrownGrenades: {
     type: GrenadeType;
     mesh: THREE.Group;
     vel: THREE.Vector3;
     fuse: number;
+    isVisualOnly?: boolean;
   }[] = [];
   private burnZones: {
     mesh: THREE.Mesh;
@@ -1142,6 +1156,18 @@ export class GameEngine {
     tickTimer: number;
   }[] = [];
   private isFiring: boolean = false;
+
+  // Co-Op Multiplayer State
+  public isMultiplayer: boolean = false;
+  public isDowned: boolean = false;
+  public bleedoutTimer: number = 25;
+  public remoteTeammates: CoopMemberState[] = [];
+  private remotePlayerRigs = new Map<string, RemotePlayerRig>();
+  private zombieTargets = new Map<string, { x: number; y: number; z: number; yaw: number }>();
+  private mpTransformTimer: number = 0;
+  private mpLocalMoving: boolean = false;
+  private mpReviveTargetId: string | null = null;
+  private mpReviveHoldTimer: number = 0;
 
   // 3D Gun Rig & Player Body Viewmodel
   private gunGroup: THREE.Group = new THREE.Group();
@@ -1166,8 +1192,8 @@ export class GameEngine {
   private isHoldingInteract: boolean = false;
   private repairTimer: number = 0;
 
-  // Settings & Configuration
-  public settings = {
+  // Settings & Career Records Configuration
+  public settings: PlayerSettings = {
     mouseSensitivity: 0.0022,
     worldBrightness: 0.85,
     exposure: 1.25,
@@ -1177,11 +1203,191 @@ export class GameEngine {
     masterVolume: 80,
   };
 
+  public records: PlayerRecords = {
+    bestRound: 1,
+    bestScore: 500,
+    totalKills: 0,
+    totalHeadshots: 0,
+    totalBoardsRepaired: 0,
+    gamesPlayed: 0,
+  };
+
+  private syncedRunKills: number = 0;
+  private syncedRunHeadshots: number = 0;
+  private syncedRunBoards: number = 0;
+  private autoSaveTimer: number = 0;
+  private lastHappyTimeRound: number = 1;
+
   private ambientLight!: THREE.AmbientLight;
   private defaultRoomEnv: THREE.Texture | null = null;
 
+  public reloadPersistedState() {
+    const savedSettings = gameStorage.getJSON<Partial<PlayerSettings>>(STORAGE_KEYS.SETTINGS);
+    if (savedSettings) {
+      this.settings = {
+        mouseSensitivity: typeof savedSettings.mouseSensitivity === 'number' ? savedSettings.mouseSensitivity : 0.0022,
+        worldBrightness: typeof savedSettings.worldBrightness === 'number' ? savedSettings.worldBrightness : 0.85,
+        exposure: typeof savedSettings.exposure === 'number' ? savedSettings.exposure : 1.25,
+        fov: typeof savedSettings.fov === 'number' ? savedSettings.fov : 75,
+        flashlightIntensity: typeof savedSettings.flashlightIntensity === 'number' ? savedSettings.flashlightIntensity : 4.5,
+        invertY: Boolean(savedSettings.invertY),
+        masterVolume: typeof savedSettings.masterVolume === 'number' ? savedSettings.masterVolume : 80,
+      };
+      soundEngine.setVolume(this.settings.masterVolume / 100);
+      if (this.renderer) {
+        this.renderer.toneMappingExposure = this.settings.exposure;
+      }
+      if (this.camera && !this.isAiming) {
+        this.camera.fov = this.settings.fov;
+        this.camera.updateProjectionMatrix();
+      }
+    }
+
+    const savedRecords = gameStorage.getJSON<Partial<PlayerRecords>>(STORAGE_KEYS.RECORDS);
+    if (savedRecords) {
+      this.records = {
+        bestRound: Math.max(1, savedRecords.bestRound || 1),
+        bestScore: Math.max(500, savedRecords.bestScore || 500),
+        totalKills: Math.max(0, savedRecords.totalKills || 0),
+        totalHeadshots: Math.max(0, savedRecords.totalHeadshots || 0),
+        totalBoardsRepaired: Math.max(0, savedRecords.totalBoardsRepaired || 0),
+        gamesPlayed: Math.max(0, savedRecords.gamesPlayed || 0),
+      };
+    }
+
+    const savedLoadout = gameStorage.getJSON<Partial<PlayerLoadout>>(STORAGE_KEYS.LOADOUT);
+    if (savedLoadout) {
+      this.setLoadout(savedLoadout);
+    }
+    this.reportCrazyGamesProgression();
+    this.onStateUpdate?.();
+  }
+
+  private persistSettings() {
+    gameStorage.setJSON(STORAGE_KEYS.SETTINGS, this.settings);
+  }
+
+  private reportCrazyGamesProgression() {
+    const completionPct = Math.min(100, Math.round(((Math.max(1, this.records.bestRound) - 1) / 19) * 100));
+    crazyGames.reportCompletion(completionPct);
+  }
+
+  private updateCrazyGamesContext() {
+    if (!this.isMapLoaded) return;
+    const mapName = this.activeMapConfig
+      ? this.activeMapConfig.name
+      : this.activeOfficialMapId === OFFICIAL_BLIGHTED_WOODS_ID
+      ? 'Blighted Woods'
+      : 'Sector Zero';
+    const activeWeapon = this.playerWeapons[this.currentWeaponIndex]?.stats.name || 'Sidearm';
+    crazyGames.setGameContext({
+      map: mapName,
+      mode: this.activeMapConfig ? 'custom_map' : 'official_survival',
+      round: this.stats.round,
+      weapon: activeWeapon,
+    });
+  }
+
+  public syncRecords(forceSave: boolean = true) {
+    const dKills = Math.max(0, this.stats.kills - this.syncedRunKills);
+    const dHeadshots = Math.max(0, this.stats.headshots - this.syncedRunHeadshots);
+    const dBoards = Math.max(0, this.stats.boardsRepaired - this.syncedRunBoards);
+
+    this.records.totalKills += dKills;
+    this.records.totalHeadshots += dHeadshots;
+    this.records.totalBoardsRepaired += dBoards;
+    this.records.bestRound = Math.max(this.records.bestRound, this.stats.round);
+    this.records.bestScore = Math.max(this.records.bestScore, this.stats.score);
+
+    this.syncedRunKills = this.stats.kills;
+    this.syncedRunHeadshots = this.stats.headshots;
+    this.syncedRunBoards = this.stats.boardsRepaired;
+
+    if (forceSave) {
+      gameStorage.setJSON(STORAGE_KEYS.RECORDS, this.records);
+    }
+    this.reportCrazyGamesProgression();
+  }
+
+  public getSavedMatch(): SavedMatchState | null {
+    const raw = gameStorage.getJSON<SavedMatchState>(STORAGE_KEYS.SAVED_RUN);
+    if (!raw || raw.version !== 1 || !raw.stats || !Array.isArray(raw.weapons)) {
+      return null;
+    }
+    return raw;
+  }
+
+  public clearSavedMatch() {
+    gameStorage.removeItem(STORAGE_KEYS.SAVED_RUN);
+  }
+
+  public saveCurrentMatch(): boolean {
+    if (!this.isMapLoaded || this.stats.isGameOver || this.isMultiplayer) return false;
+    this.syncRecords(true);
+
+    const mapId = this.activeMapConfig
+      ? this.activeMapConfig.id
+      : this.activeOfficialMapId;
+    const mapName = this.activeMapConfig
+      ? this.activeMapConfig.name
+      : this.activeOfficialMapId === OFFICIAL_BLIGHTED_WOODS_ID
+      ? 'BLIGHTED WOODS'
+      : 'SECTOR ZERO';
+
+    const state: SavedMatchState = {
+      version: 1,
+      savedAt: Date.now(),
+      mapId,
+      mapName,
+      customMapConfig: this.activeMapConfig,
+      stats: { ...this.stats, isPaused: false },
+      player: {
+        x: Number(this.playerPos.x.toFixed(3)),
+        y: Number(this.playerPos.y.toFixed(3)),
+        z: Number(this.playerPos.z.toFixed(3)),
+        yaw: Number(this.yaw.toFixed(4)),
+        pitch: Number(this.pitch.toFixed(4)),
+        playerHp: Math.round(this.playerHp),
+        maxHp: this.maxHp,
+        isFlashlightOn: this.isFlashlightOn,
+      },
+      perks: { ...this.perks },
+      loadout: sanitizeLoadout(this.playerLoadout),
+      grenadeCount: this.grenadeCount,
+      maxGrenades: this.maxGrenades,
+      weapons: this.playerWeapons.map((w) => ({
+        stats: { ...w.stats },
+        currentClip: w.currentClip,
+        currentReserve: w.currentReserve,
+      })),
+      currentWeaponIndex: this.currentWeaponIndex,
+      barriers: this.barriers.map((b) => ({ id: b.id, planks: b.planks })),
+      explodedBarrelIds: this.explosiveBarrels.filter((eb) => eb.exploded).map((eb) => eb.id),
+      zombies: this.zombies.map((z) => ({
+        x: Number(z.meshGroup.position.x.toFixed(2)),
+        y: Number(z.meshGroup.position.y.toFixed(2)),
+        z: Number(z.meshGroup.position.z.toFixed(2)),
+        health: Number(z.health.toFixed(1)),
+        maxHealth: Number(z.maxHealth.toFixed(1)),
+        speed: Number(z.speed.toFixed(3)),
+        damage: z.damage,
+        windowId: z.windowId,
+        state: z.state,
+        stunTimer: z.stunTimer,
+        slowTimer: z.slowTimer,
+        burnTimer: z.burnTimer,
+      })),
+      zombiesToSpawn: this.zombiesToSpawn,
+    };
+
+    const ok = gameStorage.setJSON(STORAGE_KEYS.SAVED_RUN, state);
+    this.onStateUpdate?.();
+    return ok;
+  }
+
   public setSensitivity(val: number) {
     this.settings.mouseSensitivity = val;
+    this.persistSettings();
     this.onStateUpdate?.();
   }
 
@@ -1197,12 +1403,14 @@ export class GameEngine {
     if (this.renderer && !this.activeMapConfig) {
       this.renderer.toneMappingExposure = 0.7 + val * 0.55;
     }
+    this.persistSettings();
     this.onStateUpdate?.();
   }
 
   public setExposure(val: number) {
     this.settings.exposure = val;
     this.renderer.toneMappingExposure = val;
+    this.persistSettings();
     this.onStateUpdate?.();
   }
 
@@ -1212,12 +1420,14 @@ export class GameEngine {
       this.camera.fov = val;
       this.camera.updateProjectionMatrix();
     }
+    this.persistSettings();
     this.onStateUpdate?.();
   }
 
   public setFlashlightIntensity(val: number) {
     this.settings.flashlightIntensity = val;
     this.applyFlashlightState();
+    this.persistSettings();
     this.onStateUpdate?.();
   }
 
@@ -1242,22 +1452,54 @@ export class GameEngine {
 
   public setInvertY(val: boolean) {
     this.settings.invertY = val;
+    this.persistSettings();
     this.onStateUpdate?.();
   }
 
   public setMasterVolume(val: number) {
     this.settings.masterVolume = val;
     soundEngine.setVolume(val / 100);
+    this.persistSettings();
     this.onStateUpdate?.();
   }
 
   public resetToMainMenu() {
+    crazyGames.stopGameplay();
+    if (this.isMultiplayer) {
+      multiplayerClient.leaveRoom();
+    } else if (this.isMapLoaded && !this.stats.isGameOver) {
+      this.saveCurrentMatch();
+    }
     this.stats.isPaused = false;
     this.stats.isGameOver = false;
     if (document.pointerLockElement === this.container) {
       document.exitPointerLock();
     }
     this.unloadMap();
+  }
+
+  public exitMultiplayerToLobby() {
+    crazyGames.stopGameplay();
+    crazyGames.clearGameContext();
+    this.stats.isPaused = false;
+    this.stats.isGameOver = false;
+    if (document.pointerLockElement === this.container) {
+      document.exitPointerLock();
+    }
+    this.unloadMap();
+  }
+
+  private handleGameOver() {
+    if (this.stats.isGameOver) return;
+    this.stats.isGameOver = true;
+    crazyGames.stopGameplay();
+    crazyGames.clearGameContext();
+    this.syncRecords(true);
+    this.clearSavedMatch();
+    if (document.pointerLockElement === this.container) {
+      document.exitPointerLock();
+    }
+    this.onStateUpdate?.();
   }
 
   // Armory Chest State
@@ -1299,6 +1541,9 @@ export class GameEngine {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     this.container.appendChild(this.renderer.domElement);
+
+    // Load saved settings, career records & loadout
+    this.reloadPersistedState();
 
     // Procedural Studio Environment Reflection Map with safe fallback
     try {
@@ -1420,9 +1665,607 @@ export class GameEngine {
     this.setupPlayerBodyRig();
 
     // Start Wave 1
+    this.syncedRunKills = 0;
+    this.syncedRunHeadshots = 0;
+    this.syncedRunBoards = 0;
+    this.autoSaveTimer = 0;
+    this.lastHappyTimeRound = 1;
+    this.records.gamesPlayed++;
+    this.syncRecords(true);
     this.startRound(1);
     this.isMapLoaded = true;
+    crazyGames.startGameplay();
+    this.updateCrazyGamesContext();
+    this.saveCurrentMatch();
     this.onStateUpdate?.();
+  }
+
+  public startMultiplayerMatch(room: MultiplayerRoomState, initialZombies: NetZombieState[]) {
+    if (this.isMapLoaded) {
+      this.unloadMap();
+    }
+
+    this.isMultiplayer = true;
+    this.isDowned = false;
+    this.bleedoutTimer = 25;
+    this.mpReviveTargetId = null;
+    this.mpReviveHoldTimer = 0;
+
+    if (room.mapId === OFFICIAL_BLIGHTED_WOODS_ID) {
+      this.activeMapConfig = undefined;
+      this.activeOfficialMapId = OFFICIAL_BLIGHTED_WOODS_ID;
+    } else if (room.customMapConfig && room.mapId !== OFFICIAL_SECTOR_ZERO_ID) {
+      this.activeMapConfig = room.customMapConfig;
+      this.activeOfficialMapId = OFFICIAL_SECTOR_ZERO_ID;
+    } else {
+      this.activeMapConfig = undefined;
+      this.activeOfficialMapId = OFFICIAL_SECTOR_ZERO_ID;
+    }
+
+    this.initPlayerStartingInventory();
+
+    if (this.activeMapConfig) {
+      this.setupCustomMap(this.activeMapConfig);
+    } else if (this.activeOfficialMapId === OFFICIAL_BLIGHTED_WOODS_ID) {
+      this.setupForestLavaMap();
+    } else {
+      this.scene.environment = this.defaultRoomEnv;
+      this.scene.background = new THREE.Color('#101522');
+      this.scene.fog = new THREE.Fog('#101522', 12, 42);
+      this.setupLighting();
+      this.setupRoom();
+      this.setupWindowBarriers();
+      this.setupPerkMachines();
+      this.setupPackAPunch();
+      this.setupMysteryBox();
+      this.setupWallBuys();
+    }
+
+    // Offset squad spawn positions slightly so players never overlap at spawn
+    const myIdx = Math.max(
+      0,
+      room.members.findIndex((m) => m.playerId === multiplayerClient.myPlayerId)
+    );
+    const angle = myIdx * 1.5;
+    this.playerPos.x += Math.cos(angle) * 1.3;
+    this.playerPos.z += Math.sin(angle) * 1.3;
+    this.camera.position.copy(this.playerPos);
+
+    this.setupGunRig();
+    this.setupPlayerBodyRig();
+
+    // Sync initial barriers & exploded barrels
+    if (Array.isArray(room.barriers)) {
+      room.barriers.forEach((rb) => {
+        const b = this.barriers[rb.id];
+        const mg = this.barrierMeshes[rb.id];
+        if (b && mg) {
+          b.planks = rb.planks;
+          mg.planks.forEach((p, idx) => (p.visible = idx < rb.planks));
+        }
+      });
+    }
+    const explodedSet = new Set(room.explodedBarrelIds || []);
+    this.explosiveBarrels.forEach((eb) => {
+      if (explodedSet.has(eb.id)) {
+        eb.exploded = true;
+        eb.mesh.visible = false;
+      }
+    });
+
+    this.stats = {
+      score: 500,
+      totalScoreEarned: 500,
+      round: room.round || 1,
+      kills: 0,
+      headshots: 0,
+      boardsRepaired: 0,
+      isGameOver: false,
+      isPaused: false,
+      isRoundBreak: room.isRoundBreak,
+      roundBreakTimer: room.roundBreakTimer,
+    };
+    this.zombiesToSpawn = room.zombiesToSpawn || 0;
+    this.syncedRunKills = 0;
+    this.syncedRunHeadshots = 0;
+    this.syncedRunBoards = 0;
+    this.autoSaveTimer = 0;
+    this.lastHappyTimeRound = this.stats.round;
+    this.records.gamesPlayed++;
+    this.syncRecords(true);
+
+    this.syncMultiplayerZombies(initialZombies || []);
+    this.syncRemotePlayers(room.members || []);
+    this.registerMultiplayerHooks();
+
+    this.isMapLoaded = true;
+    crazyGames.startGameplay();
+    this.updateCrazyGamesContext();
+    this.onStateUpdate?.();
+  }
+
+  private registerMultiplayerHooks() {
+    multiplayerClient.setGameHooks({
+      onWorldSnapshot: (msg) => {
+        if (!this.isMapLoaded || !this.isMultiplayer) return;
+        this.stats.round = msg.round;
+        this.stats.isRoundBreak = msg.isRoundBreak;
+        this.stats.roundBreakTimer = msg.roundBreakTimer;
+        this.zombiesToSpawn = msg.zombiesToSpawn;
+        this.syncMultiplayerZombies(msg.zombies);
+        this.syncRemotePlayers(msg.members);
+        this.onStateUpdate?.();
+      },
+      onBarrierUpdated: (msg) => {
+        const b = this.barriers[msg.barrierId];
+        const mg = this.barrierMeshes[msg.barrierId];
+        if (b && mg) {
+          const isRepair = msg.planks > b.planks;
+          b.planks = msg.planks;
+          mg.planks.forEach((p, idx) => (p.visible = idx < msg.planks));
+          soundEngine.playPlankWood(isRepair);
+          if (isRepair && msg.repairedBy === multiplayerClient.myPlayerId) {
+            this.stats.boardsRepaired++;
+            this.addScore(10, 'BOARD REPAIRED');
+          }
+        }
+      },
+      onZombieKilled: (msg) => {
+        const idx = this.zombies.findIndex((z) => z.id === msg.zombieId);
+        if (idx !== -1) {
+          const z = this.zombies[idx];
+          if (msg.hitPoint) {
+            this.spawnBloodParticles(new THREE.Vector3(msg.hitPoint.x, msg.hitPoint.y, msg.hitPoint.z));
+          } else {
+            this.spawnBloodParticles(z.meshGroup.position.clone().add(new THREE.Vector3(0, 1, 0)));
+          }
+          this.scene.remove(z.meshGroup);
+          this.zombies.splice(idx, 1);
+          this.zombieTargets.delete(msg.zombieId);
+        }
+        if (msg.killerPlayerId === multiplayerClient.myPlayerId) {
+          this.stats.kills++;
+          if (msg.isHeadshot) this.stats.headshots++;
+          this.addScore(msg.points, msg.reason);
+          soundEngine.playHitmarker(true, msg.isHeadshot);
+          this.onHitmarker?.(true, msg.isHeadshot);
+        }
+      },
+      onZombieHitConfirm: (msg) => {
+        if (msg.killerPlayerId === multiplayerClient.myPlayerId) {
+          this.addScore(msg.points, msg.reason);
+        }
+      },
+      onAttackedByZombie: (msg) => {
+        if (msg.targetPlayerId !== multiplayerClient.myPlayerId || this.stats.isGameOver || this.isDowned) return;
+        this.playerHp -= msg.damage;
+        this.lastDamageTime = Date.now();
+        soundEngine.playPlayerHit();
+        if (this.playerHp <= 0) {
+          this.enterDownedOrDie();
+        }
+        this.onStateUpdate?.();
+      },
+      onShootFx: (msg) => {
+        const rig = this.remotePlayerRigs.get(msg.shooterPlayerId);
+        if (rig) {
+          rig.muzzleFlash.intensity = 3.5;
+        }
+        const dist = this.playerPos.distanceTo(new THREE.Vector3(msg.origin.x, msg.origin.y, msg.origin.z));
+        if (dist < 28) {
+          soundEngine.playShoot(msg.weaponType, msg.isPap, msg.weaponId);
+        }
+        this.spawnVisualTracer(
+          new THREE.Vector3(msg.origin.x, msg.origin.y, msg.origin.z),
+          new THREE.Vector3(msg.dir.x, msg.dir.y, msg.dir.z),
+          msg.color,
+          msg.isPap
+        );
+      },
+      onGrenadeThrowFx: (msg) => {
+        const mesh = this.createGrenadeMesh(msg.grenadeType);
+        mesh.position.set(msg.pos.x, msg.pos.y, msg.pos.z);
+        this.scene.add(mesh);
+        this.thrownGrenades.push({
+          type: msg.grenadeType,
+          mesh,
+          vel: new THREE.Vector3(msg.vel.x, msg.vel.y, msg.vel.z),
+          fuse: msg.fuse,
+          isVisualOnly: true,
+        });
+        soundEngine.playGrenadeThrow();
+      },
+      onGrenadeDetonateFx: (msg) => {
+        this.playGrenadeFxOnly(msg.grenadeType, new THREE.Vector3(msg.center.x, msg.center.y, msg.center.z), msg.radius);
+      },
+      onBarrelExplodeFx: (msg) => {
+        const barrel = this.explosiveBarrels.find((eb) => eb.id === msg.barrelId);
+        if (barrel && !barrel.exploded) {
+          barrel.exploded = true;
+          barrel.mesh.visible = false;
+        }
+        this.playBarrelExplosionFxOnly(new THREE.Vector3(msg.pos.x, msg.pos.y, msg.pos.z));
+      },
+      onPlayerRevived: (msg) => {
+        if (msg.targetPlayerId === multiplayerClient.myPlayerId) {
+          this.isDowned = false;
+          this.playerHp = 100;
+          this.bleedoutTimer = 25;
+          this.lastDamageTime = Date.now();
+          soundEngine.playPerkJingle('juggernog');
+          this.scoreNotifications.unshift({
+            id: Math.random().toString(),
+            text: `REVIVED BY ${msg.reviverName.toUpperCase()}!`,
+            points: 0,
+            type: 'repair',
+          });
+          if (this.scoreNotifications.length > 5) this.scoreNotifications.pop();
+          this.sendMpTransformImmediate();
+        } else if (msg.reviverPlayerId === multiplayerClient.myPlayerId) {
+          this.addScore(150, 'TEAMMATE REVIVED!');
+          soundEngine.playPerkJingle('speedCola');
+        }
+        this.onStateUpdate?.();
+      },
+      onRoundStarted: (msg) => {
+        this.stats.round = msg.round;
+        this.stats.isRoundBreak = msg.isRoundBreak;
+        this.stats.roundBreakTimer = msg.roundBreakTimer;
+        this.zombiesToSpawn = msg.zombiesToSpawn;
+        if (msg.round > 1) {
+          this.grenadeCount = Math.min(this.maxGrenades, this.grenadeCount + 2);
+          if (this.isDowned) {
+            this.isDowned = false;
+            this.playerHp = this.maxHp;
+            this.bleedoutTimer = 25;
+          }
+          const beatMilestone = msg.round % 5 === 0;
+          const beatPersonalBest = this.records.bestRound >= 3 && msg.round > this.records.bestRound;
+          if ((beatMilestone || beatPersonalBest) && msg.round > this.lastHappyTimeRound) {
+            this.lastHappyTimeRound = msg.round;
+            crazyGames.triggerHappyTime();
+          }
+        }
+        this.explosiveBarrels.forEach((eb) => {
+          eb.exploded = false;
+          eb.mesh.visible = true;
+        });
+        soundEngine.playRoundChange(true);
+        this.syncRecords(true);
+        this.updateCrazyGamesContext();
+        this.onStateUpdate?.();
+      },
+      onGameOver: () => {
+        this.isDowned = false;
+        this.handleGameOver();
+      },
+    });
+  }
+
+  private enterDownedOrDie() {
+    const anyTeammateAlive = this.remoteTeammates.some((m) => !m.isDowned);
+    if (this.isMultiplayer && anyTeammateAlive) {
+      this.isDowned = true;
+      this.playerHp = 0;
+      this.bleedoutTimer = 25;
+      this.isAiming = false;
+      this.isFiring = false;
+      this.sendMpTransformImmediate();
+      this.scoreNotifications.unshift({
+        id: Math.random().toString(),
+        text: 'DOWNED! TEAMMATES CAN REVIVE YOU!',
+        points: 0,
+        type: 'kill',
+      });
+      if (this.scoreNotifications.length > 5) this.scoreNotifications.pop();
+    } else if (this.isMultiplayer) {
+      this.isDowned = true;
+      this.playerHp = 0;
+      this.isAiming = false;
+      this.isFiring = false;
+      this.sendMpTransformImmediate();
+    } else {
+      this.playerHp = 0;
+      this.handleGameOver();
+    }
+  }
+
+  private sendMpTransformImmediate() {
+    if (!this.isMultiplayer) return;
+    const curWep = this.playerWeapons[this.currentWeaponIndex];
+    multiplayerClient.send({
+      type: 'player:transform',
+      x: Number(this.playerPos.x.toFixed(3)),
+      y: Number(this.playerPos.y.toFixed(3)),
+      z: Number(this.playerPos.z.toFixed(3)),
+      yaw: Number(this.yaw.toFixed(4)),
+      pitch: Number(this.pitch.toFixed(4)),
+      weaponId: curWep?.stats.id || 'pistol',
+      isPap: Boolean(curWep?.stats.isPap),
+      isFlashlightOn: this.isFlashlightOn,
+      isMoving: this.mpLocalMoving,
+      hp: Math.round(this.playerHp),
+      maxHp: this.maxHp,
+      isDowned: this.isDowned,
+      score: this.stats.score,
+      kills: this.stats.kills,
+      headshots: this.stats.headshots,
+    });
+  }
+
+  private syncRemotePlayers(members: CoopMemberState[]) {
+    const myId = multiplayerClient.myPlayerId;
+    const peers = members.filter((m) => m.playerId !== myId);
+    this.remoteTeammates = peers;
+
+    const peerIds = new Set(peers.map((p) => p.playerId));
+    for (const [pid, rig] of this.remotePlayerRigs.entries()) {
+      if (!peerIds.has(pid)) {
+        this.scene.remove(rig.root);
+        disposeRemotePlayerRig(rig);
+        this.remotePlayerRigs.delete(pid);
+      }
+    }
+
+    peers.forEach((m, idx) => {
+      let rig = this.remotePlayerRigs.get(m.playerId);
+      if (!rig) {
+        rig = createRemotePlayerRig(
+          m.playerId,
+          m.displayName,
+          m.weaponId || 'pistol',
+          m.isPap,
+          idx + 1,
+          createWeapon3DModel
+        );
+        rig.root.position.set(m.x, Math.max(0, m.y - 1.6), m.z);
+        this.scene.add(rig.root);
+        this.remotePlayerRigs.set(m.playerId, rig);
+      }
+
+      rig.displayName = m.displayName;
+      rig.targetPos.set(m.x, Math.max(-1.5, m.y - 1.6), m.z);
+      rig.targetYaw = m.yaw;
+      rig.targetPitch = m.pitch;
+      rig.isDowned = m.isDowned;
+      rig.isMoving = m.isMoving;
+      rig.isFlashlightOn = m.isFlashlightOn;
+      rig.hp = m.hp;
+      rig.maxHp = m.maxHp;
+      rig.score = m.score;
+      rig.kills = m.kills;
+
+      if (rig.currentWeaponId !== m.weaponId || rig.currentIsPap !== m.isPap) {
+        rig.currentWeaponId = m.weaponId;
+        rig.currentIsPap = m.isPap;
+        while (rig.weaponMount.children.length > 0) {
+          rig.weaponMount.remove(rig.weaponMount.children[0]);
+        }
+        const newWep = createWeapon3DModel(m.weaponId || 'pistol', m.isPap);
+        newWep.scale.set(0.85, 0.85, 0.85);
+        rig.weaponMount.add(newWep);
+        rig.weaponMount.add(rig.muzzleFlash);
+      }
+
+      rig.flashlightCone.visible = m.isFlashlightOn && !m.isDowned;
+      redrawNameplate(rig);
+    });
+  }
+
+  private syncMultiplayerZombies(serverZombies: NetZombieState[]) {
+    const serverIds = new Set(serverZombies.map((sz) => sz.id));
+
+    for (let i = this.zombies.length - 1; i >= 0; i--) {
+      const localZ = this.zombies[i];
+      if (!serverIds.has(localZ.id)) {
+        this.scene.remove(localZ.meshGroup);
+        this.zombies.splice(i, 1);
+        this.zombieTargets.delete(localZ.id);
+      }
+    }
+
+    for (const sz of serverZombies) {
+      let localZ = this.zombies.find((z) => z.id === sz.id);
+      if (!localZ) {
+        const group = this.buildZombieMesh(new THREE.Vector3(sz.x, sz.y, sz.z));
+        this.scene.add(group);
+        localZ = {
+          id: sz.id,
+          meshGroup: group,
+          position: { x: sz.x, y: sz.y, z: sz.z },
+          health: sz.health,
+          maxHealth: sz.maxHealth,
+          speed: sz.speed,
+          damage: sz.damage,
+          windowId: sz.windowId,
+          state: sz.state,
+          attackTimer: 0,
+          breakPlankTimer: 0,
+          walkCycle: Math.random() * Math.PI * 2,
+          stunTimer: sz.stunTimer,
+          slowTimer: sz.slowTimer,
+          burnTimer: sz.burnTimer,
+        };
+        this.zombies.push(localZ);
+      } else {
+        localZ.health = sz.health;
+        localZ.maxHealth = sz.maxHealth;
+        localZ.state = sz.state;
+        localZ.windowId = sz.windowId;
+        localZ.stunTimer = sz.stunTimer;
+        localZ.slowTimer = sz.slowTimer;
+        localZ.burnTimer = sz.burnTimer;
+      }
+      this.zombieTargets.set(sz.id, { x: sz.x, y: sz.y, z: sz.z, yaw: sz.yaw });
+    }
+  }
+
+  public loadSavedMatch(saved: SavedMatchState): boolean {
+    if (this.isMapLoaded) {
+      this.unloadMap();
+    }
+
+    try {
+      if (saved.mapId === OFFICIAL_BLIGHTED_WOODS_ID) {
+        this.activeMapConfig = undefined;
+        this.activeOfficialMapId = OFFICIAL_BLIGHTED_WOODS_ID;
+      } else if (saved.customMapConfig) {
+        this.activeMapConfig = saved.customMapConfig;
+        this.activeOfficialMapId = OFFICIAL_SECTOR_ZERO_ID;
+      } else {
+        this.activeMapConfig = undefined;
+        this.activeOfficialMapId = OFFICIAL_SECTOR_ZERO_ID;
+      }
+
+      this.playerLoadout = sanitizeLoadout(saved.loadout);
+
+      if (this.activeMapConfig) {
+        this.setupCustomMap(this.activeMapConfig);
+      } else if (this.activeOfficialMapId === OFFICIAL_BLIGHTED_WOODS_ID) {
+        this.setupForestLavaMap();
+      } else {
+        this.scene.environment = this.defaultRoomEnv;
+        this.scene.background = new THREE.Color('#101522');
+        this.scene.fog = new THREE.Fog('#101522', 12, 42);
+        this.setupLighting();
+        this.setupRoom();
+        this.setupWindowBarriers();
+        this.setupPerkMachines();
+        this.setupPackAPunch();
+        this.setupMysteryBox();
+        this.setupWallBuys();
+      }
+
+      // Restore stats & sync counters
+      this.stats = {
+        score: saved.stats.score ?? 500,
+        totalScoreEarned: saved.stats.totalScoreEarned ?? 500,
+        round: Math.max(1, saved.stats.round ?? 1),
+        kills: Math.max(0, saved.stats.kills ?? 0),
+        headshots: Math.max(0, saved.stats.headshots ?? 0),
+        boardsRepaired: Math.max(0, saved.stats.boardsRepaired ?? 0),
+        isGameOver: false,
+        isPaused: false,
+        isRoundBreak: Boolean(saved.stats.isRoundBreak),
+        roundBreakTimer: saved.stats.roundBreakTimer ?? 0,
+      };
+      this.syncedRunKills = this.stats.kills;
+      this.syncedRunHeadshots = this.stats.headshots;
+      this.syncedRunBoards = this.stats.boardsRepaired;
+
+      // Restore perks & HP
+      this.perks = {
+        juggernog: Boolean(saved.perks?.juggernog),
+        speedCola: Boolean(saved.perks?.speedCola),
+        doubleTap: Boolean(saved.perks?.doubleTap),
+      };
+      this.maxHp = this.perks.juggernog ? 250 : 100;
+      this.playerHp = Math.min(this.maxHp, Math.max(10, saved.player.playerHp || this.maxHp));
+
+      // Restore player transform & flashlight
+      this.playerPos.set(saved.player.x, saved.player.y, saved.player.z);
+      this.yaw = saved.player.yaw || 0;
+      this.pitch = saved.player.pitch || 0;
+      this.isFlashlightOn = saved.player.isFlashlightOn ?? true;
+      this.applyFlashlightState();
+      this.playerVel.set(0, 0, 0);
+      this.isGrounded = true;
+      this.camera.position.copy(this.playerPos);
+
+      if (this.activeOfficialMapId === OFFICIAL_BLIGHTED_WOODS_ID) {
+        if (this.playerPos.z < -120) {
+          this.scene.background = new THREE.Color('#1f0704');
+          this.scene.fog = new THREE.FogExp2('#1f0704', 0.017);
+        } else {
+          this.scene.background = new THREE.Color('#081018');
+          this.scene.fog = new THREE.FogExp2('#081018', 0.022);
+        }
+      }
+
+      // Restore weapons & grenades
+      this.playerWeapons = saved.weapons.map((w) => ({
+        stats: { ...w.stats },
+        currentClip: w.currentClip,
+        currentReserve: w.currentReserve,
+        isReloading: false,
+        reloadProgress: 0,
+      }));
+      if (this.playerWeapons.length === 0) {
+        this.initPlayerStartingInventory();
+      } else {
+        this.currentWeaponIndex = Math.max(0, Math.min(this.playerWeapons.length - 1, saved.currentWeaponIndex || 0));
+        const gDef = GRENADES_MAP[this.playerLoadout.grenadeType];
+        this.maxGrenades = saved.maxGrenades || gDef.maxCount;
+        this.grenadeCount = Math.min(this.maxGrenades, Math.max(0, saved.grenadeCount ?? gDef.startCount));
+      }
+
+      this.setupGunRig();
+      this.setupPlayerBodyRig();
+
+      // Restore window barrier plank counts
+      if (Array.isArray(saved.barriers)) {
+        saved.barriers.forEach((sb) => {
+          const barrier = this.barriers[sb.id];
+          const meshGroup = this.barrierMeshes[sb.id];
+          if (barrier && meshGroup) {
+            barrier.planks = Math.max(0, Math.min(barrier.maxPlanks, sb.planks));
+            meshGroup.planks.forEach((p, idx) => {
+              p.visible = idx < barrier.planks;
+            });
+          }
+        });
+      }
+
+      // Restore explosive barrels
+      const explodedSet = new Set(saved.explodedBarrelIds || []);
+      this.explosiveBarrels.forEach((eb) => {
+        if (explodedSet.has(eb.id)) {
+          eb.exploded = true;
+          eb.mesh.visible = false;
+        }
+      });
+
+      // Restore zombies
+      this.zombiesToSpawn = Math.max(0, saved.zombiesToSpawn || 0);
+      this.zombies = [];
+      if (Array.isArray(saved.zombies)) {
+        saved.zombies.forEach((sz) => {
+          const zPos = new THREE.Vector3(sz.x, sz.y, sz.z);
+          const group = this.buildZombieMesh(zPos);
+          this.scene.add(group);
+          this.zombies.push({
+            id: Math.random().toString(),
+            meshGroup: group,
+            position: { x: sz.x, y: sz.y, z: sz.z },
+            health: sz.health,
+            maxHealth: sz.maxHealth,
+            speed: sz.speed,
+            damage: sz.damage,
+            windowId: sz.windowId,
+            state: sz.state,
+            attackTimer: 0,
+            breakPlankTimer: 0,
+            walkCycle: Math.random() * Math.PI * 2,
+            stunTimer: sz.stunTimer,
+            slowTimer: sz.slowTimer,
+            burnTimer: sz.burnTimer,
+          });
+        });
+      }
+
+      this.isMapLoaded = true;
+      this.autoSaveTimer = 0;
+      this.lastHappyTimeRound = this.stats.round;
+      crazyGames.startGameplay();
+      this.updateCrazyGamesContext();
+      this.reportCrazyGamesProgression();
+      this.onStateUpdate?.();
+      return true;
+    } catch (e) {
+      console.error('Failed to restore saved match:', e);
+      this.unloadMap();
+      return false;
+    }
   }
 
   private setupForestLavaMap() {
@@ -1770,6 +2613,21 @@ export class GameEngine {
   public unloadMap() {
     if (!this.isMapLoaded) return;
 
+    // Remove all remote Co-Op teammate rigs
+    for (const rig of this.remotePlayerRigs.values()) {
+      this.scene.remove(rig.root);
+      disposeRemotePlayerRig(rig);
+    }
+    this.remotePlayerRigs.clear();
+    this.remoteTeammates = [];
+    this.zombieTargets.clear();
+    multiplayerClient.clearGameHooks();
+    this.isMultiplayer = false;
+    this.isDowned = false;
+    this.bleedoutTimer = 25;
+    this.mpReviveTargetId = null;
+    this.mpReviveHoldTimer = 0;
+
     // Remove all zombies
     this.zombies.forEach((z) => this.scene.remove(z.meshGroup));
     this.zombies = [];
@@ -1830,6 +2688,8 @@ export class GameEngine {
     this.isFlashlightOn = true;
 
     this.isMapLoaded = false;
+    crazyGames.stopGameplay();
+    crazyGames.clearGameContext();
     this.isFiring = false;
     this.isBoxSpinning = false;
     if (this.boxSpinTimeout) {
@@ -2433,10 +3293,17 @@ export class GameEngine {
         this.isAiming = false;
         if (this.isMapLoaded && !this.stats.isGameOver) {
           this.stats.isPaused = true;
+          if (!this.isMultiplayer) {
+            crazyGames.stopGameplay();
+            this.saveCurrentMatch();
+          }
         }
       } else {
         if (this.isMapLoaded) {
           this.stats.isPaused = false;
+          if (!this.stats.isGameOver) {
+            crazyGames.startGameplay();
+          }
         }
       }
       this.onStateUpdate?.();
@@ -2453,6 +3320,15 @@ export class GameEngine {
         this.keys = {};
         this.isFiring = false;
         this.playerVel.set(0, 0, 0);
+        if (this.isMapLoaded && !this.stats.isGameOver) {
+          this.saveCurrentMatch();
+        }
+      }
+    });
+
+    window.addEventListener('pagehide', () => {
+      if (this.isMapLoaded && !this.stats.isGameOver) {
+        this.saveCurrentMatch();
       }
     });
 
@@ -2529,6 +3405,7 @@ export class GameEngine {
     this.isAiming = false;
     this.currentWeaponIndex = index;
     this.updateGunMesh();
+    this.updateCrazyGamesContext();
     soundEngine.playReload();
     this.onStateUpdate?.();
   }
@@ -2546,7 +3423,7 @@ export class GameEngine {
 
   // Player Shoot Action
   public shoot() {
-    if (this.stats.isGameOver || this.stats.isPaused) return;
+    if (this.stats.isGameOver || this.stats.isPaused || this.isDowned) return;
     const curWep = this.playerWeapons[this.currentWeaponIndex];
 
     if (curWep.isReloading || this.shootCooldown > 0) return;
@@ -2583,6 +3460,26 @@ export class GameEngine {
     const rawSpread = curWep.stats.spread || 0.012;
     const spread = this.isAiming ? rawSpread * 0.35 : rawSpread;
 
+    const muzzlePos = new THREE.Vector3();
+    this.muzzleFlashLight.getWorldPosition(muzzlePos);
+    const camDir = new THREE.Vector3();
+    this.camera.getWorldDirection(camDir);
+
+    if (this.isMultiplayer) {
+      const bulletColor = curWep.stats.isPap
+        ? curWep.stats.papColor || '#00f0ff'
+        : curWep.stats.bulletColor || '#ffcc00';
+      multiplayerClient.send({
+        type: 'combat:shootFx',
+        origin: { x: muzzlePos.x, y: muzzlePos.y, z: muzzlePos.z },
+        dir: { x: camDir.x, y: camDir.y, z: camDir.z },
+        weaponId: curWep.stats.id,
+        weaponType: curWep.stats.type,
+        isPap: curWep.stats.isPap,
+        color: bulletColor,
+      });
+    }
+
     for (let p = 0; p < pelletsCount; p++) {
       const raycaster = new THREE.Raycaster();
       const spreadX = (Math.random() - 0.5) * spread;
@@ -2596,6 +3493,25 @@ export class GameEngine {
     }
 
     this.onStateUpdate?.();
+  }
+
+  private spawnVisualTracer(origin: THREE.Vector3, dir: THREE.Vector3, color: string, isPap: boolean) {
+    const bulletGeo = new THREE.CylinderGeometry(0.022, 0.012, 0.5, 6);
+    const bulletMat = new THREE.MeshBasicMaterial({ color });
+    const mesh = new THREE.Mesh(bulletGeo, bulletMat);
+    mesh.position.copy(origin);
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+    this.scene.add(mesh);
+
+    this.bullets.push({
+      mesh,
+      vel: dir.clone().normalize().multiplyScalar(68),
+      life: 0.9,
+      isPap,
+      damage: 0,
+      color,
+      isVisualOnly: true,
+    });
   }
 
   private spawnBulletProjectile(dir: THREE.Vector3, wepStats: WeaponStats, damage: number) {
@@ -2680,14 +3596,27 @@ export class GameEngine {
       const dist = zCenter.distanceTo(center);
       if (dist <= radius) {
         const falloff = Math.max(0.35, 1 - dist / (radius * 1.15));
-        z.health -= maxDamage * falloff;
+        const dmg = maxDamage * falloff;
         this.spawnBloodParticles(zCenter);
-        if (z.health <= 0) {
-          this.scene.remove(z.meshGroup);
-          this.zombies.splice(i, 1);
-          splashKills++;
-          this.stats.kills++;
-          this.addScore(80, 'BLAST KILL!');
+        if (this.isMultiplayer) {
+          if (z.health - dmg <= 0) splashKills++;
+          multiplayerClient.send({
+            type: 'combat:hitZombie',
+            zombieId: z.id,
+            damage: dmg,
+            hitType: 'torso',
+            hitPoint: { x: zCenter.x, y: zCenter.y, z: zCenter.z },
+            reason: 'BLAST KILL!',
+          });
+        } else {
+          z.health -= dmg;
+          if (z.health <= 0) {
+            this.scene.remove(z.meshGroup);
+            this.zombies.splice(i, 1);
+            splashKills++;
+            this.stats.kills++;
+            this.addScore(80, 'BLAST KILL!');
+          }
         }
       }
     }
@@ -2695,7 +3624,9 @@ export class GameEngine {
     if (splashKills > 0) {
       soundEngine.playHitmarker(true, false);
       this.onHitmarker?.(true, false);
-      this.checkRoundCompletion();
+      if (!this.isMultiplayer) {
+        this.checkRoundCompletion();
+      }
     }
   }
 
@@ -2722,7 +3653,7 @@ export class GameEngine {
 
       // Raycast along step vector for precise hit detection
       const raycaster = new THREE.Raycaster(prevPos, stepVel.clone().normalize(), 0, stepVel.length() + 0.1);
-      const intersects = raycaster.intersectObjects(zombieMeshes, true);
+      const intersects = b.isVisualOnly ? [] : raycaster.intersectObjects(zombieMeshes, true);
 
       let consumed = false;
 
@@ -2771,41 +3702,54 @@ export class GameEngine {
           }
 
           const hitDamage = b.damage * hitMult;
-          zombie.health -= hitDamage;
-
           this.spawnBloodParticles(hitPoint);
 
-          const isKill = zombie.health <= 0;
-          const isHeadshot = hitType === 'head';
-          soundEngine.playHitmarker(isKill, isHeadshot);
-          this.onHitmarker?.(isKill, isHeadshot);
-
-          if (isKill) {
-            let pts = 60;
-            let reason = 'ZOMBIE KILL';
-            if (hitType === 'head') {
-              pts = 100;
-              reason = 'HEADSHOT KILL!';
-              this.stats.headshots++;
-            } else if (hitType === 'chest') {
-              pts = 75;
-              reason = 'VITAL CHEST KILL!';
-            } else if (hitType === 'limb') {
-              pts = 50;
-              reason = 'LIMB KILL';
-            }
-            this.addScore(pts, reason);
-            this.stats.kills++;
-
-            this.scene.remove(zombie.meshGroup);
-            this.zombies = this.zombies.filter((z) => z.id !== zombie.id);
-            this.checkRoundCompletion();
+          if (this.isMultiplayer) {
+            const predictedKill = zombie.health - hitDamage <= 0;
+            soundEngine.playHitmarker(predictedKill, hitType === 'head');
+            this.onHitmarker?.(predictedKill, hitType === 'head');
+            multiplayerClient.send({
+              type: 'combat:hitZombie',
+              zombieId: zombie.id,
+              damage: hitDamage,
+              hitType,
+              hitPoint: { x: hitPoint.x, y: hitPoint.y, z: hitPoint.z },
+            });
           } else {
-            let reason = 'BODY HIT';
-            if (hitType === 'head') reason = 'HEADSHOT HIT! [3.0x]';
-            else if (hitType === 'chest') reason = 'CHEST VITAL HIT [1.6x]';
-            else if (hitType === 'limb') reason = 'LIMB HIT [0.6x]';
-            this.addScore(10, reason);
+            zombie.health -= hitDamage;
+
+            const isKill = zombie.health <= 0;
+            const isHeadshot = hitType === 'head';
+            soundEngine.playHitmarker(isKill, isHeadshot);
+            this.onHitmarker?.(isKill, isHeadshot);
+
+            if (isKill) {
+              let pts = 60;
+              let reason = 'ZOMBIE KILL';
+              if (hitType === 'head') {
+                pts = 100;
+                reason = 'HEADSHOT KILL!';
+                this.stats.headshots++;
+              } else if (hitType === 'chest') {
+                pts = 75;
+                reason = 'VITAL CHEST KILL!';
+              } else if (hitType === 'limb') {
+                pts = 50;
+                reason = 'LIMB KILL';
+              }
+              this.addScore(pts, reason);
+              this.stats.kills++;
+
+              this.scene.remove(zombie.meshGroup);
+              this.zombies = this.zombies.filter((z) => z.id !== zombie.id);
+              this.checkRoundCompletion();
+            } else {
+              let reason = 'BODY HIT';
+              if (hitType === 'head') reason = 'HEADSHOT HIT! [3.0x]';
+              else if (hitType === 'chest') reason = 'CHEST VITAL HIT [1.6x]';
+              else if (hitType === 'limb') reason = 'LIMB HIT [0.6x]';
+              this.addScore(10, reason);
+            }
           }
 
           if (b.pierceLeft && b.pierceLeft > 0) {
@@ -2826,7 +3770,7 @@ export class GameEngine {
       }
 
       // Check Explosive Barrels raycast / proximity hit
-      const activeBarrels = this.explosiveBarrels.filter((eb) => !eb.exploded);
+      const activeBarrels = b.isVisualOnly ? [] : this.explosiveBarrels.filter((eb) => !eb.exploded);
       if (activeBarrels.length > 0) {
         const barrelMeshes = activeBarrels.map((eb) => eb.mesh);
         const barrelHits = raycaster.intersectObjects(barrelMeshes, true);
@@ -2976,22 +3920,29 @@ export class GameEngine {
 
     // Spawn count formula
     this.zombiesToSpawn = 6 + (roundNum - 1) * 4;
+
+    // Trigger CrazyGames HappyTime (milestones or beating round 3+ personal best) & Auto-Save
+    if (roundNum > 1) {
+      const beatMilestone = roundNum % 5 === 0;
+      const beatPersonalBest = this.records.bestRound >= 3 && roundNum > this.records.bestRound;
+      if ((beatMilestone || beatPersonalBest) && roundNum > this.lastHappyTimeRound) {
+        this.lastHappyTimeRound = roundNum;
+        crazyGames.triggerHappyTime();
+      }
+      this.saveCurrentMatch();
+      this.updateCrazyGamesContext();
+    }
   }
 
-  private detonateExplosiveBarrel(barrel: { id: string; mesh: THREE.Group; position: THREE.Vector3; exploded: boolean; radius: number }) {
-    if (barrel.exploded) return;
-    barrel.exploded = true;
-    barrel.mesh.visible = false;
+  private playBarrelExplosionFxOnly(pos: THREE.Vector3) {
     soundEngine.playExplosion();
-
-    // Explosion fiery particle burst
     for (let i = 0; i < 28; i++) {
       const col = i % 3 === 0 ? '#ff3300' : i % 3 === 1 ? '#ffaa00' : '#444444';
       const pMesh = new THREE.Mesh(
         new THREE.BoxGeometry(0.18, 0.18, 0.18),
         new THREE.MeshBasicMaterial({ color: col })
       );
-      pMesh.position.copy(barrel.position);
+      pMesh.position.copy(pos);
       this.scene.add(pMesh);
       const vel = new THREE.Vector3(
         (Math.random() - 0.5) * 10,
@@ -2999,6 +3950,22 @@ export class GameEngine {
         (Math.random() - 0.5) * 10
       );
       this.particles.push({ mesh: pMesh, velocity: vel, life: 0.65, maxLife: 0.65, color: col });
+    }
+  }
+
+  private detonateExplosiveBarrel(barrel: { id: string; mesh: THREE.Group; position: THREE.Vector3; exploded: boolean; radius: number }) {
+    if (barrel.exploded) return;
+    barrel.exploded = true;
+    barrel.mesh.visible = false;
+    this.playBarrelExplosionFxOnly(barrel.position);
+
+    if (this.isMultiplayer) {
+      multiplayerClient.send({
+        type: 'combat:barrelExplode',
+        barrelId: barrel.id,
+        pos: { x: barrel.position.x, y: barrel.position.y, z: barrel.position.z },
+      });
+      return;
     }
 
     // Blast damage to nearby zombies
@@ -3071,6 +4038,32 @@ export class GameEngine {
     }
 
     // Zombie Mesh Group
+    const group = this.buildZombieMesh(spawnPos);
+    this.scene.add(group);
+
+    // Zombie HP & Speed scaling per round
+    const hp = 100 * Math.pow(1.18, this.stats.round - 1);
+    const speed = 0.65 + Math.min((this.stats.round - 1) * 0.28, 2.4);
+
+    this.zombies.push({
+      id: Math.random().toString(),
+      meshGroup: group,
+      position: { x: spawnPos.x, y: spawnPos.y, z: spawnPos.z },
+      health: hp,
+      maxHealth: hp,
+      speed,
+      damage: 30,
+      windowId: barrier ? barrier.id : null,
+      state: initialState,
+      attackTimer: 0,
+      breakPlankTimer: 0,
+      walkCycle: Math.random() * Math.PI * 2,
+    });
+
+    this.zombiesToSpawn--;
+  }
+
+  private buildZombieMesh(spawnPos: THREE.Vector3): THREE.Group {
     const group = new THREE.Group();
 
     const skinMat = new THREE.MeshStandardMaterial({ color: '#2e3b2e', roughness: 0.8 });
@@ -3186,28 +4179,7 @@ export class GameEngine {
     group.add(legR);
 
     group.position.copy(spawnPos);
-    this.scene.add(group);
-
-    // Zombie HP & Speed scaling per round
-    const hp = 100 * Math.pow(1.18, this.stats.round - 1);
-    const speed = 0.65 + Math.min((this.stats.round - 1) * 0.28, 2.4);
-
-    this.zombies.push({
-      id: Math.random().toString(),
-      meshGroup: group,
-      position: { x: spawnPos.x, y: spawnPos.y, z: spawnPos.z },
-      health: hp,
-      maxHealth: hp,
-      speed,
-      damage: 30,
-      windowId: barrier ? barrier.id : null,
-      state: initialState,
-      attackTimer: 0,
-      breakPlankTimer: 0,
-      walkCycle: Math.random() * Math.PI * 2,
-    });
-
-    this.zombiesToSpawn--;
+    return group;
   }
 
   private checkRoundCompletion() {
@@ -3220,9 +4192,33 @@ export class GameEngine {
   private updateInteractivePrompts() {
     this.currentPrompt = '';
     this.interactTargetAction = null;
+    this.mpReviveTargetId = null;
+
+    if (this.isDowned) {
+      this.currentPrompt = `DOWNED — WAIT FOR TEAMMATE REVIVE (${Math.ceil(this.bleedoutTimer)}S)`;
+      this.onStateUpdate?.();
+      return;
+    }
 
     // Check Distance to Player Camera
     const playerPos2D = new THREE.Vector2(this.playerPos.x, this.playerPos.z);
+
+    // 0. Check Downed Co-Op Teammates (Highest Priority)
+    if (this.isMultiplayer) {
+      for (const m of this.remoteTeammates) {
+        if (!m.isDowned) continue;
+        const d = playerPos2D.distanceTo(new THREE.Vector2(m.x, m.z));
+        if (d < 2.6) {
+          this.mpReviveTargetId = m.playerId;
+          this.currentPrompt = `HOLD 'E' TO REVIVE ${m.displayName.toUpperCase()} (+150 PTS)`;
+          this.interactTargetAction = () => {
+            multiplayerClient.send({ type: 'player:revive', targetPlayerId: m.playerId });
+          };
+          this.onStateUpdate?.();
+          return;
+        }
+      }
+    }
 
     // 1. Check Window Barriers (Repair Planks)
     this.barriers.forEach((b) => {
@@ -3427,6 +4423,11 @@ export class GameEngine {
   private repairPlank(barrier: WindowBarrier) {
     if (barrier.planks >= barrier.maxPlanks) return;
 
+    if (this.isMultiplayer) {
+      multiplayerClient.send({ type: 'player:repairBarrier', barrierId: barrier.id });
+      return;
+    }
+
     barrier.planks++;
     this.stats.boardsRepaired++;
     this.addScore(10, 'BOARD REPAIRED');
@@ -3469,6 +4470,7 @@ export class GameEngine {
     curWep.currentReserve = curWep.stats.maxReserve;
 
     this.updateGunMesh();
+    this.updateCrazyGamesContext();
     soundEngine.playPackAPunch();
     this.onStateUpdate?.();
   }
@@ -3627,6 +4629,7 @@ export class GameEngine {
     }
 
     this.updateGunMesh();
+    this.updateCrazyGamesContext();
     soundEngine.playReload();
     this.onStateUpdate?.();
   }
@@ -3639,16 +4642,43 @@ export class GameEngine {
 
     const delta = Math.min(this.clock.getDelta(), 0.1);
 
-    if (!this.stats.isPaused && !this.stats.isGameOver) {
-      this.updatePlayerMovement(delta);
-      this.updateWeapons(delta);
+    const worldActive = this.isMultiplayer
+      ? !this.stats.isGameOver
+      : !this.stats.isPaused && !this.stats.isGameOver;
+
+    if (worldActive) {
+      if (!this.stats.isPaused) {
+        this.updatePlayerMovement(delta);
+        this.updateWeapons(delta);
+      }
       this.updateBullets(delta);
       this.updateGrenades(delta);
       this.updateBurnZones(delta);
-      this.updateZombies(delta);
+      if (this.isMultiplayer) {
+        this.updateMultiplayerZombies(delta);
+        this.updateRemotePlayers(delta);
+        this.mpTransformTimer += delta;
+        if (this.mpTransformTimer >= 0.05) {
+          this.mpTransformTimer = 0;
+          this.sendMpTransformImmediate();
+        }
+      } else {
+        this.updateZombies(delta);
+      }
       this.updateParticles(delta);
       this.updateWaveManager(delta);
-      this.updateInteractivePrompts();
+      if (!this.stats.isPaused) {
+        this.updateInteractivePrompts();
+      }
+
+      // Periodic 15-second auto-save while alive in a solo match
+      if (!this.isMultiplayer) {
+        this.autoSaveTimer += delta;
+        if (this.autoSaveTimer >= 15) {
+          this.autoSaveTimer = 0;
+          this.saveCurrentMatch();
+        }
+      }
 
       if (this.flashScreenAlpha > 0) {
         this.flashScreenAlpha = Math.max(0, this.flashScreenAlpha - delta * 1.45);
@@ -3678,6 +4708,109 @@ export class GameEngine {
     this.renderer.render(this.scene, this.camera);
   };
 
+  private updateRemotePlayers(delta: number) {
+    for (const rig of this.remotePlayerRigs.values()) {
+      rig.root.position.x = THREE.MathUtils.damp(rig.root.position.x, rig.targetPos.x, 14, delta);
+      rig.root.position.y = THREE.MathUtils.damp(rig.root.position.y, rig.targetPos.y, 14, delta);
+      rig.root.position.z = THREE.MathUtils.damp(rig.root.position.z, rig.targetPos.z, 14, delta);
+
+      const dYaw = Math.atan2(Math.sin(rig.targetYaw - rig.root.rotation.y), Math.cos(rig.targetYaw - rig.root.rotation.y));
+      rig.root.rotation.y += dYaw * Math.min(1, delta * 14);
+      rig.headGroup.rotation.x = THREE.MathUtils.damp(rig.headGroup.rotation.x, rig.targetPitch, 14, delta);
+      rig.muzzleFlash.intensity = THREE.MathUtils.damp(rig.muzzleFlash.intensity, 0, 22, delta);
+
+      if (rig.isDowned) {
+        rig.bodyGroup.position.y = THREE.MathUtils.damp(rig.bodyGroup.position.y, -0.75, 10, delta);
+        rig.bodyGroup.rotation.x = THREE.MathUtils.damp(rig.bodyGroup.rotation.x, -0.35, 10, delta);
+        rig.legL.rotation.x = 0.6;
+        rig.legR.rotation.x = -0.3;
+      } else {
+        rig.bodyGroup.position.y = THREE.MathUtils.damp(rig.bodyGroup.position.y, 0, 10, delta);
+        rig.bodyGroup.rotation.x = THREE.MathUtils.damp(rig.bodyGroup.rotation.x, 0, 10, delta);
+        if (rig.isMoving) {
+          rig.walkCycle += delta * 11;
+          rig.legL.rotation.x = Math.sin(rig.walkCycle) * 0.5;
+          rig.legR.rotation.x = -Math.sin(rig.walkCycle) * 0.5;
+        } else {
+          rig.legL.rotation.x = THREE.MathUtils.damp(rig.legL.rotation.x, 0, 10, delta);
+          rig.legR.rotation.x = THREE.MathUtils.damp(rig.legR.rotation.x, 0, 10, delta);
+        }
+      }
+    }
+  }
+
+  private updateMultiplayerZombies(delta: number) {
+    for (const z of this.zombies) {
+      const target = this.zombieTargets.get(z.id);
+      if (target) {
+        z.meshGroup.position.x = THREE.MathUtils.damp(z.meshGroup.position.x, target.x, 12, delta);
+        z.meshGroup.position.y = THREE.MathUtils.damp(z.meshGroup.position.y, target.y, 12, delta);
+        z.meshGroup.position.z = THREE.MathUtils.damp(z.meshGroup.position.z, target.z, 12, delta);
+        const dYaw = Math.atan2(Math.sin(target.yaw - z.meshGroup.rotation.y), Math.cos(target.yaw - z.meshGroup.rotation.y));
+        z.meshGroup.rotation.y += dYaw * Math.min(1, delta * 12);
+      }
+
+      const armL = z.meshGroup.getObjectByName('zombieArmL');
+      const armR = z.meshGroup.getObjectByName('zombieArmR');
+      const legL = z.meshGroup.getObjectByName('zombieLegL');
+      const legR = z.meshGroup.getObjectByName('zombieLegR');
+
+      if (z.burnTimer && z.burnTimer > 0 && Math.random() < delta * 5) {
+        const zPos = z.meshGroup.position;
+        const flameMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(0.08, 0.08, 0.08),
+          new THREE.MeshBasicMaterial({ color: Math.random() > 0.5 ? '#ff5500' : '#ffbb00' })
+        );
+        flameMesh.position.set(zPos.x + (Math.random() - 0.5) * 0.4, 0.9 + Math.random() * 0.6, zPos.z + (Math.random() - 0.5) * 0.4);
+        this.scene.add(flameMesh);
+        this.particles.push({
+          mesh: flameMesh,
+          velocity: new THREE.Vector3((Math.random() - 0.5) * 1.5, 2.2 + Math.random() * 1.5, (Math.random() - 0.5) * 1.5),
+          life: 0.28,
+          maxLife: 0.28,
+          color: '#ff6600',
+        });
+      }
+
+      if (z.stunTimer && z.stunTimer > 0) {
+        const wobble = Math.sin(Date.now() * 0.018 + z.walkCycle) * 0.14;
+        if (legL && legR) {
+          legL.rotation.x = 0;
+          legR.rotation.x = 0;
+        }
+        if (armL && armR) {
+          armL.rotation.x = -Math.PI * 0.78 + wobble;
+          armR.rotation.x = -Math.PI * 0.78 - wobble;
+        }
+        z.meshGroup.rotation.z = wobble * 0.4;
+      } else {
+        if (z.meshGroup.rotation.z !== 0) z.meshGroup.rotation.z = 0;
+        const speedMult = z.slowTimer && z.slowTimer > 0 ? 0.25 : 1.0;
+        if (z.state === 'breaking_planks' || z.state === 'attacking') {
+          z.attackTimer += delta * speedMult;
+          if (legL && legR) {
+            legL.rotation.x = 0;
+            legR.rotation.x = 0;
+          }
+          if (armL && armR) {
+            armL.rotation.x = -Math.PI / 2 + Math.sin(z.attackTimer * 12) * 0.4;
+            armR.rotation.x = -Math.PI / 2 - Math.sin(z.attackTimer * 12) * 0.4;
+          }
+        } else {
+          z.walkCycle += delta * z.speed * speedMult * 5;
+          if (legL && legR) {
+            legL.rotation.x = Math.sin(z.walkCycle) * 0.45;
+            legR.rotation.x = -Math.sin(z.walkCycle) * 0.45;
+          }
+          if (armL && armR) {
+            armL.rotation.x = -Math.PI / 3 + Math.sin(z.walkCycle) * 0.3;
+            armR.rotation.x = -Math.PI / 3 - Math.sin(z.walkCycle) * 0.3;
+          }
+        }
+      }
+    }
+  }
+
   private updatePlayerMovement(delta: number) {
     // Camera rotation from mouse yaw & pitch
     const euler = new THREE.Euler(0, 0, 0, 'YXZ');
@@ -3695,8 +4828,9 @@ export class GameEngine {
     moveDir.normalize();
 
     // Speed calculation
-    const isSprint = this.keys['ShiftLeft'] || this.keys['ShiftRight'];
-    const speed = isSprint ? 7.5 : 4.5;
+    const isSprint = !this.isDowned && (this.keys['ShiftLeft'] || this.keys['ShiftRight']);
+    const speed = this.isDowned ? 1.8 : isSprint ? 7.5 : 4.5;
+    this.mpLocalMoving = moveDir.length() > 0;
 
     // Transform move vector relative to camera yaw
     const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
@@ -3763,11 +4897,12 @@ export class GameEngine {
       this.playerLegR.rotation.x = THREE.MathUtils.damp(this.playerLegR.rotation.x, 0, 10, delta);
     }
 
+    const eyeOffset = this.isDowned ? 0.78 : 1.6;
     // Compute supporting floor height (handles elevated floors, parkour stepping stones, and lava abyss)
     let groundY =
       this.activeOfficialMapId === OFFICIAL_BLIGHTED_WOODS_ID && this.playerPos.z < -120 ? -1.5 : 0;
     if (this.usesSolidBoxes) {
-      const feetY = this.playerPos.y - 1.6;
+      const feetY = this.playerPos.y - eyeOffset;
       for (const b of this.customSolidBoxes) {
         if (
           this.playerPos.x >= b.minX - 0.2 &&
@@ -3780,16 +4915,16 @@ export class GameEngine {
           groundY = b.maxY;
         }
       }
-      if (this.isGrounded && this.playerPos.y < groundY + 1.6) {
-        this.playerPos.y = groundY + 1.6;
-      } else if (this.isGrounded && this.playerPos.y > groundY + 1.6 + 0.05) {
+      if (this.isGrounded && this.playerPos.y < groundY + eyeOffset) {
+        this.playerPos.y = groundY + eyeOffset;
+      } else if (this.isGrounded && this.playerPos.y > groundY + eyeOffset + 0.05) {
         this.isGrounded = false;
       }
     }
-    const minEyeY = groundY + 1.6;
+    const minEyeY = groundY + eyeOffset;
 
     // Jump Physics
-    if (this.keys['Space'] && this.isGrounded) {
+    if (!this.isDowned && this.keys['Space'] && this.isGrounded) {
       this.playerVel.y = 5.5;
       this.isGrounded = false;
     }
@@ -3811,15 +4946,13 @@ export class GameEngine {
       this.forestLavaState &&
       this.activeOfficialMapId === OFFICIAL_BLIGHTED_WOODS_ID &&
       this.playerPos.z < -120 &&
-      this.playerPos.y - 1.6 <= -0.75
+      this.playerPos.y - eyeOffset <= -0.75
     ) {
       this.playerHp -= 40;
       this.lastDamageTime = Date.now();
       soundEngine.playPlayerHit();
       if (this.playerHp <= 0) {
-        this.playerHp = 0;
-        this.stats.isGameOver = true;
-        document.exitPointerLock();
+        this.enterDownedOrDie();
       } else {
         this.playerPos.copy(this.forestLavaState.lavaArrivalSpawnPos);
         this.playerVel.set(0, 0, 0);
@@ -3851,7 +4984,7 @@ export class GameEngine {
     const bodyX = this.playerPos.x + Math.sin(this.yaw) * pitchOffset;
     const bodyZ = this.playerPos.z + Math.cos(this.yaw) * pitchOffset;
 
-    this.playerBodyRig.position.set(bodyX, this.playerPos.y - 1.6, bodyZ);
+    this.playerBodyRig.position.set(bodyX, this.playerPos.y - eyeOffset, bodyZ);
     this.playerBodyRig.rotation.set(0, this.yaw, 0);
 
     // Smooth FOV Damping for Aim Down Sights (settings.fov hipfire -> 55 FOV ADS scope zoom)
@@ -3876,14 +5009,26 @@ export class GameEngine {
       this.gunGroup.position.y = THREE.MathUtils.damp(this.gunGroup.position.y, baseY, 16, delta);
     }
 
-    // Health Auto-Regeneration (After 4s without damage)
-    if (Date.now() - this.lastDamageTime > 4000 && this.playerHp < this.maxHp) {
+    // Bleedout Timer while Downed OR Health Auto-Regeneration (After 4s without damage)
+    if (this.isDowned) {
+      this.bleedoutTimer = Math.max(0, this.bleedoutTimer - delta);
+    } else if (Date.now() - this.lastDamageTime > 4000 && this.playerHp < this.maxHp) {
       this.playerHp = Math.min(this.maxHp, this.playerHp + 40 * delta);
       this.onStateUpdate?.();
     }
 
-    // Holding 'E' Repair Progress
-    if (this.isHoldingInteract && this.currentPrompt.includes('REPAIR')) {
+    // Holding 'E' Repair or Teammate Revive Progress
+    if (this.isHoldingInteract && this.mpReviveTargetId) {
+      this.mpReviveHoldTimer += delta;
+      if (this.mpReviveHoldTimer >= 1.4) {
+        this.mpReviveHoldTimer = 0;
+        this.triggerInteraction();
+      }
+    } else {
+      this.mpReviveHoldTimer = 0;
+    }
+
+    if (this.isHoldingInteract && !this.mpReviveTargetId && this.currentPrompt.includes('REPAIR')) {
       this.repairTimer += delta;
       if (this.repairTimer >= 0.6) {
         this.repairTimer = 0;
@@ -4185,8 +5330,7 @@ export class GameEngine {
 
             if (this.playerHp <= 0) {
               this.playerHp = 0;
-              this.stats.isGameOver = true;
-              document.exitPointerLock();
+              this.handleGameOver();
             }
 
             this.onStateUpdate?.();
@@ -4203,7 +5347,7 @@ export class GameEngine {
   }
 
   public throwGrenade() {
-    if (!this.isMapLoaded || this.stats.isGameOver || this.stats.isPaused) return;
+    if (!this.isMapLoaded || this.stats.isGameOver || this.stats.isPaused || this.isDowned) return;
     if (this.grenadeCount <= 0 || this.throwCooldown > 0) return;
 
     const gType = this.playerLoadout.grenadeType;
@@ -4229,6 +5373,16 @@ export class GameEngine {
       vel,
       fuse: gDef.fuseTime,
     });
+
+    if (this.isMultiplayer) {
+      multiplayerClient.send({
+        type: 'combat:grenadeThrow',
+        grenadeType: gType,
+        pos: { x: startPos.x, y: startPos.y, z: startPos.z },
+        vel: { x: vel.x, y: vel.y, z: vel.z },
+        fuse: gDef.fuseTime,
+      });
+    }
 
     soundEngine.playGrenadeThrow();
     this.onStateUpdate?.();
@@ -4363,8 +5517,104 @@ export class GameEngine {
         const blastCenter = g.mesh.position.clone();
         this.scene.remove(g.mesh);
         this.thrownGrenades.splice(i, 1);
-        this.detonateGrenade(g.type, blastCenter);
+        if (!g.isVisualOnly) {
+          this.detonateGrenade(g.type, blastCenter);
+        }
       }
+    }
+  }
+
+  private playGrenadeFxOnly(type: GrenadeType, center: THREE.Vector3, radius: number) {
+    if (type === 'frag') {
+      soundEngine.playExplosion();
+      for (let i = 0; i < 32; i++) {
+        const col = i % 3 === 0 ? '#ff3300' : i % 3 === 1 ? '#ffaa00' : '#334155';
+        const pMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(0.16, 0.16, 0.16),
+          new THREE.MeshBasicMaterial({ color: col })
+        );
+        pMesh.position.copy(center);
+        this.scene.add(pMesh);
+        this.particles.push({
+          mesh: pMesh,
+          velocity: new THREE.Vector3((Math.random() - 0.5) * 11, Math.random() * 8 + 2, (Math.random() - 0.5) * 11),
+          life: 0.65,
+          maxLife: 0.65,
+          color: col,
+        });
+      }
+    } else if (type === 'flashbang') {
+      soundEngine.playFlashbang();
+      for (let i = 0; i < 28; i++) {
+        const col = i % 2 === 0 ? '#ffffff' : '#bae6fd';
+        const pMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(0.14, 0.14, 0.14),
+          new THREE.MeshBasicMaterial({ color: col })
+        );
+        pMesh.position.copy(center);
+        this.scene.add(pMesh);
+        this.particles.push({
+          mesh: pMesh,
+          velocity: new THREE.Vector3((Math.random() - 0.5) * 12, Math.random() * 6 + 1, (Math.random() - 0.5) * 12),
+          life: 0.42,
+          maxLife: 0.42,
+          color: col,
+        });
+      }
+    } else if (type === 'cryo') {
+      soundEngine.playCryoExplosion();
+      for (let i = 0; i < 30; i++) {
+        const col = i % 2 === 0 ? '#67e8f9' : '#e0f2fe';
+        const pMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(0.14, 0.14, 0.14),
+          new THREE.MeshBasicMaterial({ color: col })
+        );
+        pMesh.position.copy(center);
+        this.scene.add(pMesh);
+        this.particles.push({
+          mesh: pMesh,
+          velocity: new THREE.Vector3((Math.random() - 0.5) * 9, Math.random() * 5 + 1, (Math.random() - 0.5) * 9),
+          life: 0.6,
+          maxLife: 0.6,
+          color: col,
+        });
+      }
+    } else if (type === 'thermite') {
+      soundEngine.playExplosion();
+      for (let i = 0; i < 26; i++) {
+        const col = i % 2 === 0 ? '#f97316' : '#facc15';
+        const pMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(0.14, 0.14, 0.14),
+          new THREE.MeshBasicMaterial({ color: col })
+        );
+        pMesh.position.copy(center);
+        this.scene.add(pMesh);
+        this.particles.push({
+          mesh: pMesh,
+          velocity: new THREE.Vector3((Math.random() - 0.5) * 8, Math.random() * 6 + 2, (Math.random() - 0.5) * 8),
+          life: 0.55,
+          maxLife: 0.55,
+          color: col,
+        });
+      }
+      const discGeo = new THREE.CircleGeometry(radius, 24);
+      const discMat = new THREE.MeshBasicMaterial({
+        color: '#f97316',
+        transparent: true,
+        opacity: 0.55,
+        side: THREE.DoubleSide,
+      });
+      const disc = new THREE.Mesh(discGeo, discMat);
+      disc.rotation.x = -Math.PI / 2;
+      disc.position.set(center.x, center.y - 0.08, center.z);
+      this.scene.add(disc);
+      this.burnZones.push({
+        mesh: disc,
+        position: center.clone(),
+        radius,
+        life: 5.0,
+        tickTimer: 0,
+      });
     }
   }
 
@@ -4378,6 +5628,31 @@ export class GameEngine {
           this.detonateExplosiveBarrel(eb);
         }
       });
+    }
+
+    if (this.isMultiplayer) {
+      this.playGrenadeFxOnly(type, center, def.radius);
+      multiplayerClient.send({
+        type: 'combat:grenadeDetonate',
+        grenadeType: type,
+        center: { x: center.x, y: center.y, z: center.z },
+        radius: def.radius,
+        damage: def.damage,
+      });
+      if (type === 'flashbang') {
+        const playerDist = this.playerPos.distanceTo(center);
+        if (playerDist < 14) {
+          const camDir = new THREE.Vector3();
+          this.camera.getWorldDirection(camDir);
+          const toFlash = center.clone().sub(this.playerPos).normalize();
+          const facing = camDir.dot(toFlash);
+          const falloff = Math.max(0.2, 1 - playerDist / 14);
+          const intensity = facing > 0.15 ? 0.85 * falloff : 0.25 * falloff;
+          this.flashScreenAlpha = Math.max(this.flashScreenAlpha, intensity);
+          this.onStateUpdate?.();
+        }
+      }
+      return;
     }
 
     if (type === 'frag') {
@@ -4655,6 +5930,13 @@ export class GameEngine {
   }
 
   private updateWaveManager(delta: number) {
+    if (this.isMultiplayer) {
+      if (this.stats.isRoundBreak && this.stats.roundBreakTimer > 0) {
+        this.stats.roundBreakTimer = Math.max(0, this.stats.roundBreakTimer - delta);
+      }
+      return;
+    }
+
     if (this.stats.isRoundBreak) {
       this.stats.roundBreakTimer -= delta;
       if (this.stats.roundBreakTimer <= 0) {
@@ -4736,7 +6018,17 @@ export class GameEngine {
       meshGroup.planks.forEach((p) => (p.visible = true));
     });
 
+    this.syncedRunKills = 0;
+    this.syncedRunHeadshots = 0;
+    this.syncedRunBoards = 0;
+    this.autoSaveTimer = 0;
+    this.lastHappyTimeRound = 1;
+    this.records.gamesPlayed++;
+    this.syncRecords(true);
     this.startRound(1);
+    crazyGames.startGameplay();
+    this.updateCrazyGamesContext();
+    this.saveCurrentMatch();
     this.container.requestPointerLock();
   }
 
