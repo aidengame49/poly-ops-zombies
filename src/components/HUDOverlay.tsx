@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { GameEngine } from '../game/GameEngine';
-import { generateSingleFileHTML } from './SingleFileExporter';
 import { SettingsModal } from './SettingsModal';
 import { HowToPlayModal } from './HowToPlayModal';
 import { MapMakerView } from './MapMakerView';
 import { MapSelectModal } from './MapSelectModal';
 import { CustomMapConfig, getDefaultMapConfig } from '../types/game';
-import { Volume2, VolumeX, Download, Play, RotateCcw, Shield, Zap, Target, Sliders, HelpCircle, Flame, Home, Crosshair, Box, Flashlight } from 'lucide-react';
+import { Volume2, VolumeX, Play, RotateCcw, Shield, Zap, Target, Sliders, HelpCircle, Flame, Home, Crosshair, Box, Flashlight } from 'lucide-react';
 import { soundEngine } from '../utils/soundEngine';
 
 interface HUDOverlayProps {
@@ -122,19 +121,6 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
     engine?.resetToMainMenu();
     setIsTestingCustomMap(false);
     setActiveModal('main_menu');
-  };
-
-  const handleDownloadHTML = () => {
-    const htmlContent = generateSingleFileHTML();
-    const blob = new Blob([htmlContent], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'poly_ops_zombies.html';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
   };
 
   if (!gameState) return null;
@@ -436,13 +422,6 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
               >
                 <HelpCircle className="w-5 h-5 text-cyan-400" /> HOW TO PLAY
               </button>
-
-              <button
-                onClick={handleDownloadHTML}
-                className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-cyan-400 font-semibold py-3 rounded-xl border border-cyan-900/40 hover:border-cyan-500/50 transition-all cursor-pointer text-sm mt-2"
-              >
-                <Download className="w-4 h-4" /> EXPORT SINGLE-FILE HTML
-              </button>
             </div>
 
             {/* Right Column - Map Showcase & Records */}
@@ -537,13 +516,6 @@ export const HUDOverlay: React.FC<HUDOverlayProps> = ({ engine }) => {
                 className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold py-3 rounded-xl border border-slate-700 transition-all cursor-pointer"
               >
                 <Home className="w-5 h-5 text-red-400" /> MAIN MENU
-              </button>
-
-              <button
-                onClick={handleDownloadHTML}
-                className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-cyan-300 font-semibold py-3 rounded-xl border border-cyan-500/30 transition-all cursor-pointer text-sm"
-              >
-                <Download className="w-4 h-4" /> EXPORT SINGLE-FILE HTML
               </button>
             </div>
           </div>
