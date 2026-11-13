@@ -1,4 +1,5 @@
 import { crazyGames, gameStorage, STORAGE_KEYS } from './crazyGames';
+import { P2pMultiplayerRelay } from './p2pMultiplayerRelay';
 import type { CustomMapConfig, PlayerLoadout } from '../types/game';
 import type {
   ClientToServerMessage,
@@ -15,6 +16,7 @@ import type {
 } from '../types/multiplayer';
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+export type MultiplayerTransportMode = 'server' | 'relay';
 
 export interface SocialNotice {
   id: string;
@@ -145,7 +147,6 @@ function getOrCreateAuthToken(): string {
 
   ensureLeaseLifecycleHooks();
 
-  // If this tab already spawned an isolated concurrent session token, keep using it across reloads of this tab
   try {
     const sessionTok = window.sessionStorage.getItem(SESSION_TOKEN_KEY);
     if (sessionTok && sessionTok.length >= 8) {
@@ -156,7 +157,6 @@ function getOrCreateAuthToken(): string {
     // Ignore
   }
 
-  // Check if another open tab in this same browser already owns the persistent token
   const myTabId = getTabId();
   let otherTabActive = false;
   try {
@@ -177,8 +177,6 @@ function getOrCreateAuthToken(): string {
   }
 
   if (otherTabActive) {
-    // Automatic multi-tab isolation: second tab gets its own independent Player ID & session
-    // so both tabs can play co-op / invite each other in the same browser without kicking each other!
     const isoToken = generateRandomToken();
     try {
       window.sessionStorage.setItem(SESSION_TOKEN_KEY, isoToken);
@@ -197,6 +195,15 @@ function getOrCreateAuthToken(): string {
   const generated = generateRandomToken();
   gameStorage.setItem(STORAGE_KEYS.MP_TOKEN, generated);
   return generated;
+}
+
+function isTabIsolatedSession(): boolean {
+  if (crazyGames.isActive || typeof window === 'undefined') return false;
+  try {
+    return Boolean(window.sessionStorage.getItem(SESSION_TOKEN_KEY));
+  } catch {
+    return false;
+  }
 }
 
 function getStoredPreferredPlayerId(): string | undefined {
@@ -229,10 +236,23 @@ function savePreferredPlayerId(playerId: string) {
   gameStorage.setItem(STORAGE_KEYS.MP_PLAYER_ID, playerId);
 }
 
+function hasExplicitServerConfig(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const param = new URLSearchParams(window.location.search).get('mpServer');
+    if (param && param.trim()) return true;
+  } catch {
+    // Ignore
+  }
+  const saved = gameStorage.getItem(STORAGE_KEYS.MP_SERVER);
+  if (saved && saved.trim()) return true;
+  const envUrl = (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_MULTIPLAYER_SERVER_URL;
+  return Boolean(envUrl && envUrl.trim());
+}
+
 function resolveDefaultWsUrl(): string {
   if (typeof window === 'undefined') return 'ws://localhost:3000/ws';
 
-  // 1. Explicit URL parameter override (?mpServer=https://... or wss://...)
   try {
     const param = new URLSearchParams(window.location.search).get('mpServer');
     if (param && param.trim()) {
@@ -242,19 +262,16 @@ function resolveDefaultWsUrl(): string {
     // Ignore
   }
 
-  // 2. Saved server override (useful when hosting static files pointing to a dedicated backend)
   const saved = gameStorage.getItem(STORAGE_KEYS.MP_SERVER);
   if (saved && saved.trim()) {
     return normalizeWsUrl(saved.trim());
   }
 
-  // 3. Build-time env var if provided
   const envUrl = (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_MULTIPLAYER_SERVER_URL;
   if (envUrl && envUrl.trim()) {
     return normalizeWsUrl(envUrl.trim());
   }
 
-  // 4. Same-origin Express+WebSocket server (/ws)
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${proto}//${window.location.host}/ws`;
 }
@@ -274,8 +291,6 @@ export function normalizeWsUrl(raw: string): string {
   try {
     const parsed = new URL(url);
     if (wasHttp || !hadProtocol) {
-      // When user pastes an app URL like https://my-server.run.app/?roomId=123 or /subpath/,
-      // always target /ws and strip unrelated query/hash params.
       parsed.pathname = parsed.pathname.endsWith('/ws') ? parsed.pathname : '/ws';
       parsed.search = '';
       parsed.hash = '';
@@ -303,6 +318,7 @@ function toHealthCheckUrl(wsUrl: string): string | null {
 
 class MultiplayerClient {
   private ws: WebSocket | null = null;
+  private relay = new P2pMultiplayerRelay();
   private status: ConnectionStatus = 'disconnected';
   private serverUrl: string = '';
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -313,6 +329,7 @@ class MultiplayerClient {
   private replacedByOtherTab = false;
   private manualDisconnect = false;
   private probingHealth = false;
+  private lastTransformSentAt = 0;
   private pendingQueue: ClientToServerMessage[] = [];
   private listeners = new Set<() => void>();
   private matchStartedListeners = new Set<(msg: MatchStartedMsg) => void>();
@@ -320,6 +337,7 @@ class MultiplayerClient {
   private lastRoomSyncId: string | null = null;
   private lastRoomJoinable: boolean | null = null;
 
+  public transportMode: MultiplayerTransportMode = 'server';
   public profile: PlayerProfile | null = null;
   public friends: FriendEntry[] = [];
   public incomingRequests: FriendRequestEntry[] = [];
@@ -336,8 +354,24 @@ class MultiplayerClient {
   public currentLoadout: PlayerLoadout = { startingPistolId: 'pistol', grenadeType: 'frag' };
 
   constructor() {
+    this.relay.onServerMessage = (msg) => {
+      if (this.transportMode === 'relay') {
+        this.handleServerMessage(msg);
+      }
+    };
+    this.relay.onDisconnect = (reason) => {
+      if (this.transportMode !== 'relay') return;
+      this.profile = null;
+      this.status = this.manualDisconnect ? 'disconnected' : 'error';
+      if (!this.manualDisconnect) {
+        this.lastError = `Cloud relay reconnecting (${reason})...`;
+        this.scheduleReconnect();
+      }
+      this.emitStateChange();
+    };
+
     crazyGames.subscribeAuthChange((cgUser) => {
-      if (this.ws && this.ws.readyState === WebSocket.OPEN && this.profile) {
+      if (this.isConnected) {
         this.send({
           type: 'profile:syncCrazyGames',
           crazyGamesUsername: cgUser?.username || null,
@@ -354,9 +388,9 @@ class MultiplayerClient {
       });
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible' && !this.replacedByOtherTab && !this.manualDisconnect) {
-          if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+          if (!this.isConnected) {
             this.connect();
-          } else {
+          } else if (this.transportMode === 'server') {
             this.sendPingNow();
           }
         }
@@ -369,10 +403,14 @@ class MultiplayerClient {
   }
 
   public get resolvedServerUrl(): string {
+    if (this.transportMode === 'relay') return this.relay.brokerUrl;
     return this.serverUrl || resolveDefaultWsUrl();
   }
 
   public get isConnected(): boolean {
+    if (this.transportMode === 'relay') {
+      return this.status === 'connected' && this.relay.active && Boolean(this.profile);
+    }
     return this.status === 'connected' && Boolean(this.profile);
   }
 
@@ -422,26 +460,10 @@ class MultiplayerClient {
     this.isStaticHostDetected = false;
     if (clean) {
       gameStorage.setItem(STORAGE_KEYS.MP_SERVER, clean);
+      this.transportMode = 'server';
     } else {
       gameStorage.removeItem(STORAGE_KEYS.MP_SERVER);
-    }
-    this.disconnect();
-    this.connect(true);
-  }
-
-  public switchToNewGuestProfile() {
-    if (crazyGames.isActive || typeof window === 'undefined') return;
-    const fresh = generateRandomToken();
-    try {
-      if (window.sessionStorage.getItem(SESSION_TOKEN_KEY) || !isHoldingPrimaryLease) {
-        window.sessionStorage.setItem(SESSION_TOKEN_KEY, fresh);
-        window.sessionStorage.removeItem(SESSION_PLAYER_ID_KEY);
-      } else {
-        gameStorage.setItem(STORAGE_KEYS.MP_TOKEN, fresh);
-        gameStorage.removeItem(STORAGE_KEYS.MP_PLAYER_ID);
-      }
-    } catch {
-      gameStorage.setItem(STORAGE_KEYS.MP_TOKEN, fresh);
+      this.transportMode = 'server';
     }
     this.disconnect();
     this.connect(true);
@@ -463,6 +485,7 @@ class MultiplayerClient {
   }
 
   private sendPingNow() {
+    if (this.transportMode !== 'server') return;
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.profile) return;
     try {
       this.ws.send(JSON.stringify({ type: 'ping' } satisfies ClientToServerMessage));
@@ -491,13 +514,50 @@ class MultiplayerClient {
     }, 20000);
   }
 
+  private switchToCloudRelay() {
+    if (this.manualDisconnect) return;
+    this.clearHeartbeatTimers();
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.ws) {
+      const s = this.ws;
+      this.ws = null;
+      try {
+        s.close(1000, 'Switching to Cloud Relay');
+      } catch {
+        // Ignore
+      }
+    }
+
+    this.transportMode = 'relay';
+    this.isStaticHostDetected = false;
+    this.lastError = null;
+    this.status = 'connecting';
+    this.emitStateChange();
+
+    // Ensure tab-lease allocation runs so multi-tab sessions on static hosts stay isolated
+    getOrCreateAuthToken();
+    const savedName = gameStorage.getItem(STORAGE_KEYS.MP_NAME) || undefined;
+    const cgName = crazyGames.user?.username || null;
+
+    this.relay.connect({
+      preferredPlayerId: getStoredPreferredPlayerId(),
+      requestedName: crazyGames.isActive ? undefined : savedName,
+      crazyGamesUsername: cgName,
+      loadout: this.currentLoadout,
+      isolatedSession: isTabIsolatedSession(),
+    });
+  }
+
   private async probeBackendHealth(wsUrl: string) {
     if (this.probingHealth || typeof fetch === 'undefined') return;
     const healthUrl = toHealthCheckUrl(wsUrl);
     if (!healthUrl) return;
     this.probingHealth = true;
     const controller = new AbortController();
-    const abortTimer = setTimeout(() => controller.abort(), 3500);
+    const abortTimer = setTimeout(() => controller.abort(), 3000);
     try {
       const resp = await fetch(healthUrl, { signal: controller.signal, mode: 'cors' });
       const contentType = resp.headers.get('content-type') || '';
@@ -505,16 +565,25 @@ class MultiplayerClient {
         const data = (await resp.json()) as { ok?: boolean };
         if (data?.ok) {
           this.isStaticHostDetected = false;
-          this.lastError = `Server is online at ${healthUrl}, but WebSocket upgrade failed (proxy/firewall or browser extension may be blocking /ws).`;
+          this.lastError = `Server is online at ${healthUrl}, but WebSocket upgrade failed (proxy/firewall may be blocking /ws).`;
           this.emitStateChange();
           return;
         }
       }
+      // Static host detected (e.g. GitHub Pages, Itch.io, Cloudflare Pages returning 404 or HTML)!
+      if (!hasExplicitServerConfig()) {
+        this.switchToCloudRelay();
+        return;
+      }
       this.isStaticHostDetected = true;
-      this.lastError = `No multiplayer server found at ${new URL(healthUrl).origin} (static host returned ${resp.status}). Enter your live Node server URL in SERVER settings.`;
+      this.lastError = `No multiplayer server found at ${new URL(healthUrl).origin} (HTTP ${resp.status}). Check Server URL or click USE DEFAULT for Cloud Co-Op Relay.`;
     } catch {
+      if (!hasExplicitServerConfig()) {
+        this.switchToCloudRelay();
+        return;
+      }
       this.isStaticHostDetected = false;
-      this.lastError = `Unable to reach multiplayer server (${wsUrl}). Check internet or configure a live Server URL.`;
+      this.lastError = `Unable to reach custom server (${wsUrl}). Check URL or click USE DEFAULT.`;
     } finally {
       clearTimeout(abortTimer);
       this.probingHealth = false;
@@ -531,6 +600,13 @@ class MultiplayerClient {
       this.lastError = null;
     }
     if (this.replacedByOtherTab) return;
+
+    if (this.transportMode === 'relay') {
+      if (this.relay.active || this.relay.connecting) return;
+      this.switchToCloudRelay();
+      return;
+    }
+
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       return;
     }
@@ -541,6 +617,12 @@ class MultiplayerClient {
     }
     this.clearHeartbeatTimers();
 
+    // Fast path for known static hosts (e.g. GitHub Pages) when no custom Node server override is set
+    if (!hasExplicitServerConfig() && window.location.hostname.endsWith('.github.io')) {
+      this.switchToCloudRelay();
+      return;
+    }
+
     this.serverUrl = resolveDefaultWsUrl();
     this.status = 'connecting';
     this.emitStateChange();
@@ -549,7 +631,11 @@ class MultiplayerClient {
       const socket = new WebSocket(this.serverUrl);
       this.ws = socket;
 
-      // Guard against stalled WS handshakes or silent auth drops
+      // Parallel static-host check when using default same-origin URL
+      if (!hasExplicitServerConfig()) {
+        void this.probeStaticOriginEarly(this.serverUrl, socket);
+      }
+
       this.connectTimeoutTimer = setTimeout(() => {
         if (this.ws === socket && (!this.profile || socket.readyState === WebSocket.CONNECTING)) {
           this.lastError = `Connection timed out (${this.serverUrl}).`;
@@ -560,11 +646,11 @@ class MultiplayerClient {
             // Ignore
           }
           this.ws = null;
-          this.probeBackendHealth(this.serverUrl);
+          void this.probeBackendHealth(this.serverUrl);
           this.emitStateChange();
           this.scheduleReconnect();
         }
-      }, 6500);
+      }, 6000);
 
       socket.onopen = () => {
         if (this.ws !== socket) return;
@@ -629,19 +715,41 @@ class MultiplayerClient {
           return;
         }
         if (!hadProfile && !this.manualDisconnect) {
-          this.probeBackendHealth(this.serverUrl);
+          void this.probeBackendHealth(this.serverUrl);
         }
         this.emitStateChange();
-        if (!this.manualDisconnect) {
+        if (!this.manualDisconnect && this.transportMode === 'server') {
           this.scheduleReconnect();
         }
       };
     } catch {
       this.clearHeartbeatTimers();
+      if (!hasExplicitServerConfig()) {
+        this.switchToCloudRelay();
+        return;
+      }
       this.status = 'error';
       this.lastError = `Invalid WebSocket URL (${this.serverUrl}).`;
       this.emitStateChange();
       this.scheduleReconnect();
+    }
+  }
+
+  private async probeStaticOriginEarly(wsUrl: string, socket: WebSocket) {
+    const healthUrl = toHealthCheckUrl(wsUrl);
+    if (!healthUrl || typeof fetch === 'undefined') return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2000);
+    try {
+      const resp = await fetch(healthUrl, { signal: controller.signal });
+      const contentType = resp.headers.get('content-type') || '';
+      if ((!resp.ok || !contentType.includes('application/json')) && !this.profile && this.ws === socket) {
+        this.switchToCloudRelay();
+      }
+    } catch {
+      // Let normal WS timeout / close path handle fallback
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -653,6 +761,7 @@ class MultiplayerClient {
       this.reconnectTimer = null;
     }
     this.profile = null;
+    this.relay.disconnect();
     if (this.ws) {
       const s = this.ws;
       this.ws = null;
@@ -677,7 +786,29 @@ class MultiplayerClient {
   }
 
   public send(msg: ClientToServerMessage) {
-    // CRITICAL: Must also wait for this.profile (auth:welcome) so server never drops pre-auth messages!
+    if (this.transportMode === 'relay') {
+      if (!this.relay.active || !this.profile) {
+        if (msg.type !== 'player:transform' && msg.type !== 'ping') {
+          if (msg.type === 'room:create' || msg.type === 'room:join' || msg.type === 'room:quickplay') {
+            this.pendingQueue = this.pendingQueue.filter(
+              (q) => q.type !== 'room:create' && q.type !== 'room:join' && q.type !== 'room:quickplay'
+            );
+          }
+          this.pendingQueue.push(msg);
+          this.connect(true);
+        }
+        return;
+      }
+      if (msg.type === 'player:transform') {
+        const now = performance.now();
+        if (now - this.lastTransformSentAt < 65) return;
+        this.lastTransformSentAt = now;
+      }
+      this.relay.sendClientMessage(msg);
+      return;
+    }
+
+    // Dedicated Node WS mode: wait for this.profile (auth:welcome) so server never drops pre-auth messages
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.profile) {
       if (msg.type !== 'player:transform' && msg.type !== 'ping') {
         if (msg.type === 'room:create' || msg.type === 'room:join' || msg.type === 'room:quickplay') {
@@ -694,7 +825,16 @@ class MultiplayerClient {
   }
 
   private flushPendingQueue() {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.profile) return;
+    if (!this.profile) return;
+    if (this.transportMode === 'relay') {
+      if (!this.relay.active) return;
+      const queued = this.pendingQueue.splice(0, this.pendingQueue.length);
+      for (const msg of queued) {
+        this.relay.sendClientMessage(msg);
+      }
+      return;
+    }
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     const queued = this.pendingQueue.splice(0, this.pendingQueue.length);
     for (const msg of queued) {
       this.ws.send(JSON.stringify(msg));
@@ -741,7 +881,9 @@ class MultiplayerClient {
         this.outgoingRequests = msg.outgoingRequests;
         if (typeof msg.onlineCount === 'number') this.onlinePlayerCount = msg.onlineCount;
         if (Array.isArray(msg.publicRooms)) this.publicRooms = msg.publicRooms;
-        this.startHeartbeat();
+        if (this.transportMode === 'server') {
+          this.startHeartbeat();
+        }
         this.flushPendingQueue();
         this.emitStateChange();
         break;

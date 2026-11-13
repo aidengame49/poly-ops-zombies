@@ -235,6 +235,8 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                 {connStatus === 'connected'
                   ? isCgMode
                     ? 'CrazyGames Multiplayer Network Online'
+                    : multiplayerClient.transportMode === 'relay'
+                    ? `Cloud Co-Op Relay Online · ${Math.max(1, onlineCount)} Online`
                     : `Poly-Ops Co-Op Network Online · ${Math.max(1, onlineCount)} Online`
                   : connStatus === 'connecting'
                   ? 'Connecting to Multiplayer Server...'
